@@ -59,6 +59,7 @@ if (!$customer) {
         .label{font-weight:800;color:#243b53}.value{color:var(--ink)}
         @media (max-width:760px){.row{grid-template-columns:1fr}.topbar{flex-direction:column;align-items:flex-start}}
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
 </head>
 <body>
 <div class="layout">

@@ -53,6 +53,7 @@ if (!$project) {
         .badge.active{color:#2b8a3e;border-color:#b2f2bb;background:#ebfbee}.badge.inactive{color:#c92a2a;border-color:#ffc9c9;background:#fff5f5}
         @media (max-width:760px){.row{grid-template-columns:1fr}}
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
 </head>
 <body>
 <div class="layout">

@@ -153,6 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .msg{margin:0 0 14px;padding:11px 12px;border-radius:10px;font-size:14px}
         .msg-ok{background:#e6ffed;color:#1f7a36;border:1px solid #b7ebc6}.msg-err{background:#fff5f5;color:#9b2c2c;border:1px solid #fed7d7}
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
 </head>
 <body>
     <main class="wrap">

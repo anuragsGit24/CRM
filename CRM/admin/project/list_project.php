@@ -141,6 +141,7 @@ if ($listStmt === false) {
         .success{margin:0;padding:10px 12px;border-radius:10px;background:#d3f9d8;color:#2b8a3e;border:1px solid #b2f2bb;font-size:14px;font-weight:700}
         @media (max-width:900px){.filters{grid-template-columns:1fr}.filter-actions{justify-content:flex-start}}
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
 </head>
 <body>
 <div class="layout">

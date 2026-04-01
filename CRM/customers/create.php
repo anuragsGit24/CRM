@@ -118,6 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .submit{grid-column:1 / -1;border:none;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:800;color:#fff;background:linear-gradient(120deg,var(--brand),var(--brand-2));cursor:pointer;box-shadow:0 10px 24px rgba(11,114,133,.28)}
         @media (max-width:760px){form{grid-template-columns:1fr}.topbar{flex-direction:column;align-items:flex-start}}
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
 </head>
 <body>
 <div class="layout">

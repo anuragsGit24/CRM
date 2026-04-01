@@ -127,6 +127,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .note{grid-column:1 / -1;margin:0;color:var(--muted);font-size:13px;line-height:1.5}
         @media (max-width:760px){form{grid-template-columns:1fr}.topbar{flex-direction:column;align-items:flex-start}}
     </style>
+    <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
 </head>
 <body>
 <div class="layout">

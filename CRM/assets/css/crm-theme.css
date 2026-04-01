@@ -1,0 +1,215 @@
+:root {
+    --crm-primary: #0b2c5f;
+    --crm-secondary: #102f6b;
+    --crm-accent: #ff7a00;
+    --crm-bg: #f5f7fa;
+    --crm-card: #ffffff;
+    --crm-text: #1f2933;
+    --crm-muted: #5f6c7b;
+    --crm-line: #d9e2ec;
+    --crm-shadow: 0 12px 28px rgba(11, 44, 95, 0.08);
+}
+
+body {
+    background:
+        radial-gradient(circle at right top, rgba(16, 47, 107, 0.1), transparent 42%),
+        radial-gradient(circle at left top, rgba(255, 122, 0, 0.08), transparent 38%),
+        var(--crm-bg) !important;
+    color: var(--crm-text) !important;
+}
+
+.layout {
+    width: min(1320px, 100%) !important;
+}
+
+.topbar,
+.panel,
+.card,
+.hero,
+.recent-panel,
+.stat,
+.action-card,
+.mini-card,
+.recent-head,
+.workspace > aside {
+    background: var(--crm-card) !important;
+    border: 1px solid var(--crm-line) !important;
+    box-shadow: var(--crm-shadow) !important;
+}
+
+.title,
+.panel-title,
+.hero h2,
+h1,
+h2,
+h3 {
+    color: var(--crm-primary);
+}
+
+.subtitle,
+.panel-subtitle,
+.card p,
+.action-card p,
+.mini-card p,
+.helper-list span,
+.list span,
+.empty,
+.note,
+.muted-link {
+    color: var(--crm-muted) !important;
+}
+
+.btn,
+.btn-primary,
+.quick-btn.primary,
+.action-btn.primary,
+.submit,
+.table-action,
+.edit-btn,
+.delete-btn,
+.action-btn.dark,
+.btn-link {
+    background: linear-gradient(120deg, var(--crm-accent), #ff9a3c) !important;
+    border: 1px solid transparent !important;
+    color: #ffffff !important;
+}
+
+.btn-ghost,
+.action-btn,
+.quick-btn,
+.table-btn {
+    background: #ffffff !important;
+    border: 1px solid var(--crm-line) !important;
+    color: var(--crm-primary) !important;
+}
+
+.btn:hover,
+.action-btn:hover,
+.quick-btn:hover,
+.table-btn:hover,
+.edit-btn:hover,
+.table-action:hover,
+.btn-link:hover {
+    filter: brightness(0.98);
+}
+
+.btn:focus-visible,
+.action-btn:focus-visible,
+.quick-btn:focus-visible,
+.table-btn:focus-visible,
+input:focus,
+textarea:focus,
+select:focus,
+a:focus-visible,
+button:focus-visible {
+    outline: 3px solid rgba(255, 122, 0, 0.28) !important;
+    outline-offset: 2px;
+    box-shadow: none !important;
+}
+
+.table-wrap,
+.mini-table {
+    border: 1px solid var(--crm-line) !important;
+    border-radius: 12px;
+    background: #ffffff;
+}
+
+table {
+    background: #ffffff !important;
+}
+
+thead th {
+    background: #f8fafc !important;
+    color: var(--crm-primary) !important;
+    border-bottom: 1px solid var(--crm-line) !important;
+}
+
+tbody td {
+    border-bottom: 1px solid #edf2f7 !important;
+}
+
+tbody tr:hover {
+    background: #fff8f1 !important;
+}
+
+input,
+textarea,
+select,
+.filter-input {
+    border: 1px solid var(--crm-line) !important;
+    border-radius: 10px !important;
+    background: #ffffff !important;
+    color: var(--crm-text) !important;
+}
+
+.badge {
+    border: 1px solid var(--crm-line) !important;
+    background: #f8fafc !important;
+    color: var(--crm-primary) !important;
+}
+
+.badge.active {
+    border-color: #ffd8b0 !important;
+    color: #a64b00 !important;
+    background: #fff4e8 !important;
+}
+
+.badge.inactive {
+    border-color: #d9e2ec !important;
+    color: #334e68 !important;
+    background: #f8fafc !important;
+}
+
+.navbar,
+.sidebar {
+    background: var(--crm-secondary);
+    color: #ffffff;
+}
+
+.sidebar a,
+.navbar a {
+    color: #ffffff;
+}
+
+.sidebar a:hover,
+.sidebar a.active,
+.navbar a.active {
+    color: var(--crm-accent);
+}
+
+/* Login page color overrides to keep structure intact but align with CRM blue/orange theme. */
+.shell {
+    background: var(--crm-card) !important;
+}
+
+.intro {
+    background: linear-gradient(165deg, var(--crm-primary), var(--crm-secondary)) !important;
+}
+
+.intro h1,
+.intro p,
+.intro .badge,
+.steps li {
+    color: #ffffff !important;
+}
+
+.intro .badge {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: rgba(255, 255, 255, 0.95) !important;
+    color: var(--crm-primary) !important;
+}
+
+.steps li {
+    background: rgba(255, 255, 255, 0.14) !important;
+    border-color: rgba(255, 255, 255, 0.24) !important;
+}
+
+.panel h2 {
+    color: var(--crm-primary) !important;
+}
+
+.panel .sub,
+.panel .hint,
+.panel label {
+    color: var(--crm-primary) !important;
+}
