@@ -451,7 +451,7 @@ if ($projectsResult) {
                 <h1 class="title">Admin Dashboard</h1>
                 <p class="subtitle">Welcome, <?php echo htmlspecialchars($displayName); ?>. You are logged in as admin.</p>
             </div>
-            <a class="btn btn-ghost" href="<?php echo htmlspecialchars(app_url('/auth/logout.php')); ?>">Logout</a>
+            <a class="btn" href="<?php echo htmlspecialchars(app_url('/auth/logout.php')); ?>">Logout</a>
         </header>
 
         <!-- <section class="hero" aria-label="Admin overview and shortcuts">
