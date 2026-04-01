@@ -3,6 +3,9 @@
 require_once __DIR__ . '/../../auth/middleware.php';
 require_admin();
 
+// Load reusable CSRF helper.
+require_once __DIR__ . '/../../auth/csrf.php';
+
 // Step 2: Load MySQLi database connection.
 require_once __DIR__ . '/../../config/database.php';
 
@@ -53,6 +56,11 @@ $formData = [
 
 // Step 6: Process update when admin submits the form.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $builderData) {
+	// Validate CSRF token before accepting updates.
+	if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+		$errorMessage = 'Invalid request token. Please refresh and try again.';
+	}
+
 	// Read updated values.
 	$formData['name'] = trim($_POST['name'] ?? '');
 	$formData['contact'] = trim($_POST['contact'] ?? '');
@@ -63,18 +71,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $builderData) {
 	$allowedStatuses = ['active', 'inactive'];
 
 	// Step 7: Validate required fields and formats.
-	if (
+	if ($errorMessage === '' && (
 		$formData['name'] === '' ||
 		$formData['contact'] === '' ||
 		$formData['address'] === '' ||
 		$formData['email'] === ''
-	) {
+	)) {
 		$errorMessage = 'Please fill all required fields.';
-	} elseif (!filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
+	} elseif ($errorMessage === '' && !filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
 		$errorMessage = 'Please enter a valid email address.';
-	} elseif (!in_array($formData['status'], $allowedStatuses, true)) {
+	} elseif ($errorMessage === '' && !in_array($formData['status'], $allowedStatuses, true)) {
 		$errorMessage = 'Invalid status selected.';
-	} else {
+	} elseif ($errorMessage === '') {
 		// Step 8: Update builder using MySQLi prepared statement.
 		$updateSql = 'UPDATE builders SET name = ?, contact = ?, address = ?, email = ?, status = ? WHERE id = ? LIMIT 1';
 		$updateStmt = $conn->prepare($updateSql);
@@ -321,6 +329,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $builderData) {
 
 			<?php if ($builderData): ?>
 				<form method="post" action="">
+					<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
 					<div class="field">
 						<label for="name">Builder Name *</label>
 						<input id="name" name="name" type="text" required value="<?php echo htmlspecialchars($formData['name']); ?>" placeholder="Enter builder name">

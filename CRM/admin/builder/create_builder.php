@@ -3,6 +3,9 @@
 require_once __DIR__ . '/../../auth/middleware.php';
 require_admin();
 
+// Load reusable CSRF helper.
+require_once __DIR__ . '/../../auth/csrf.php';
+
 // Step 2: Load MySQLi database connection.
 require_once __DIR__ . '/../../config/database.php';
 
@@ -20,6 +23,11 @@ $formData = [
 
 // Step 4: Run insert logic only when form is submitted.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+	// Block form submission if CSRF token is missing/invalid.
+	if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+		$errorMessage = 'Invalid request token. Please refresh and try again.';
+	}
+
 	// Read and trim submitted values.
 	$formData['name'] = trim($_POST['name'] ?? '');
 	$formData['contact'] = trim($_POST['contact'] ?? '');
@@ -30,18 +38,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	$allowedStatuses = ['active', 'inactive'];
 
 	// Step 5: Validate required fields and format.
-	if (
+	if ($errorMessage === '' && (
 		$formData['name'] === '' ||
 		$formData['contact'] === '' ||
 		$formData['address'] === '' ||
 		$formData['email'] === ''
-	) {
+	)) {
 		$errorMessage = 'Please fill all required fields.';
-	} elseif (!filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
+	} elseif ($errorMessage === '' && !filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
 		$errorMessage = 'Please enter a valid email address.';
-	} elseif (!in_array($formData['status'], $allowedStatuses, true)) {
+	} elseif ($errorMessage === '' && !in_array($formData['status'], $allowedStatuses, true)) {
 		$errorMessage = 'Invalid status selected.';
-	} else {
+	} elseif ($errorMessage === '') {
 		// Step 6: Insert builder record using MySQLi prepared statement.
 		$sql = 'INSERT INTO builders (name, contact, address, email, status) VALUES (?, ?, ?, ?, ?)';
 		$stmt = $conn->prepare($sql);
@@ -293,6 +301,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 			<?php endif; ?>
 
 			<form method="post" action="">
+				<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
 				<div class="field">
 					<label for="name">Builder Name *</label>
 					<input id="name" name="name" type="text" required value="<?php echo htmlspecialchars($formData['name']); ?>" placeholder="Enter builder name">

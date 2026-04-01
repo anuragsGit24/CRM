@@ -3,14 +3,59 @@
 require_once __DIR__ . '/../auth/middleware.php';
 require_admin();
 
+// Load reusable CSRF helper.
+require_once __DIR__ . '/../auth/csrf.php';
+
 // Step 2: Load database connection.
 require_once __DIR__ . '/../config/database.php';
 
 // Step 3: Prepare placeholders for page messages and results.
 $errorMessage = '';
+$successMessage = '';
 $users = [];
 
-// Step 4: Fetch users from database using MySQLi.
+// Step 4: Handle delete action securely using POST + CSRF.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+        $errorMessage = 'Invalid request token. Please refresh and try again.';
+    } else {
+        $deleteUserId = filter_input(INPUT_POST, 'delete_user_id', FILTER_VALIDATE_INT);
+        $currentUserId = (int) ($_SESSION['user_id'] ?? 0);
+
+        if (!$deleteUserId) {
+            $errorMessage = 'Invalid user selected for deletion.';
+        } elseif ($deleteUserId === $currentUserId) {
+            $errorMessage = 'You cannot delete your own logged-in account.';
+        } else {
+            $deleteSql = 'DELETE FROM users WHERE id = ? LIMIT 1';
+            $deleteStmt = $conn->prepare($deleteSql);
+
+            if (!$deleteStmt) {
+                $errorMessage = 'Unable to prepare delete query. Please try again.';
+            } else {
+                $deleteStmt->bind_param('i', $deleteUserId);
+
+                if ($deleteStmt->execute()) {
+                    if ($deleteStmt->affected_rows > 0) {
+                        $successMessage = 'User deleted successfully.';
+                    } else {
+                        $errorMessage = 'User not found or already deleted.';
+                    }
+                } else {
+                    if ((int) $deleteStmt->errno === 1451) {
+                        $errorMessage = 'Cannot delete this user because related records exist.';
+                    } else {
+                        $errorMessage = 'Failed to delete user. Please try again.';
+                    }
+                }
+
+                $deleteStmt->close();
+            }
+        }
+    }
+}
+
+// Step 5: Fetch users from database using MySQLi.
 // This query has no user input, so direct query is safe here.
 $sql = 'SELECT id, name, username, email, role, status FROM users ORDER BY id DESC';
 $result = $conn->query($sql);
@@ -23,7 +68,7 @@ if ($result === false) {
     }
 }
 
-// Step 5: Calculate summary counts for easy admin overview.
+// Step 6: Calculate summary counts for easy admin overview.
 $totalUsers = count($users);
 $totalAdmins = 0;
 $totalActive = 0;
@@ -252,6 +297,39 @@ foreach ($users as $userRow) {
             display: inline-block;
         }
 
+        .delete-btn {
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            background: #c92a2a;
+            border-radius: 8px;
+            padding: 7px 11px;
+        }
+
+        .action-inline {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .inline-form {
+            margin: 0;
+        }
+
+        .success {
+            margin: 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #d3f9d8;
+            color: #2b8a3e;
+            border: 1px solid #b2f2bb;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
         .empty {
             margin: 0;
             color: var(--muted);
@@ -309,6 +387,8 @@ foreach ($users as $userRow) {
 
             <?php if ($errorMessage !== ''): ?>
                 <p class="error"><?php echo htmlspecialchars($errorMessage); ?></p>
+            <?php elseif ($successMessage !== ''): ?>
+                <p class="success"><?php echo htmlspecialchars($successMessage); ?></p>
             <?php elseif (count($users) === 0): ?>
                 <p class="empty">No users found. Use Create User to add your first user.</p>
             <?php else: ?>
@@ -339,7 +419,15 @@ foreach ($users as $userRow) {
                                         </span>
                                     </td>
                                     <td>
-                                        <a class="edit-btn" href="<?php echo htmlspecialchars(app_url('/admin/edit_user.php?id=' . (int) $user['id'])); ?>">Edit</a>
+                                        <div class="action-inline">
+                                            <a class="edit-btn" href="<?php echo htmlspecialchars(app_url('/admin/view_user.php?id=' . (int) $user['id'])); ?>">View</a>
+                                            <a class="edit-btn" href="<?php echo htmlspecialchars(app_url('/admin/edit_user.php?id=' . (int) $user['id'])); ?>">Edit</a>
+                                            <form class="inline-form" method="post" action="" onsubmit="return confirm('Delete this user? This action cannot be undone.');">
+                                                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+                                                <input type="hidden" name="delete_user_id" value="<?php echo (int) $user['id']; ?>">
+                                                <button class="delete-btn" type="submit">Delete</button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

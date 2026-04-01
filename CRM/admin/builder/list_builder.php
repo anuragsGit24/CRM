@@ -3,14 +3,56 @@
 require_once __DIR__ . '/../../auth/middleware.php';
 require_admin();
 
+// Load reusable CSRF helper.
+require_once __DIR__ . '/../../auth/csrf.php';
+
 // Step 2: Load database connection.
 require_once __DIR__ . '/../../config/database.php';
 
 // Step 3: Prepare variables for result handling.
 $errorMessage = '';
+$successMessage = '';
 $builders = [];
 
-// Step 4: Fetch all builders from database.
+// Step 4: Handle delete action securely using POST + CSRF.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+	if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+		$errorMessage = 'Invalid request token. Please refresh and try again.';
+	} else {
+		$deleteBuilderId = filter_input(INPUT_POST, 'delete_builder_id', FILTER_VALIDATE_INT);
+
+		if (!$deleteBuilderId) {
+			$errorMessage = 'Invalid builder selected for deletion.';
+		} else {
+			$deleteSql = 'DELETE FROM builders WHERE id = ? LIMIT 1';
+			$deleteStmt = $conn->prepare($deleteSql);
+
+			if (!$deleteStmt) {
+				$errorMessage = 'Unable to prepare delete query. Please try again.';
+			} else {
+				$deleteStmt->bind_param('i', $deleteBuilderId);
+
+				if ($deleteStmt->execute()) {
+					if ($deleteStmt->affected_rows > 0) {
+						$successMessage = 'Builder deleted successfully.';
+					} else {
+						$errorMessage = 'Builder not found or already deleted.';
+					}
+				} else {
+					if ((int) $deleteStmt->errno === 1451) {
+						$errorMessage = 'Cannot delete this builder because related projects exist.';
+					} else {
+						$errorMessage = 'Failed to delete builder. Please try again.';
+					}
+				}
+
+				$deleteStmt->close();
+			}
+		}
+	}
+}
+
+// Step 5: Fetch all builders from database.
 // No user input is used in this query, so direct query is fine.
 $sql = 'SELECT id, name, contact, email, status FROM builders ORDER BY id DESC';
 $result = $conn->query($sql);
@@ -197,6 +239,39 @@ if ($result === false) {
 			display: inline-block;
 		}
 
+		.delete-btn {
+			border: none;
+			cursor: pointer;
+			font-size: 13px;
+			font-weight: 700;
+			color: #fff;
+			background: #c92a2a;
+			border-radius: 8px;
+			padding: 7px 11px;
+		}
+
+		.action-inline {
+			display: flex;
+			gap: 8px;
+			align-items: center;
+			flex-wrap: wrap;
+		}
+
+		.inline-form {
+			margin: 0;
+		}
+
+		.success {
+			margin: 0;
+			padding: 10px 12px;
+			border-radius: 10px;
+			background: #d3f9d8;
+			color: #2b8a3e;
+			border: 1px solid #b2f2bb;
+			font-size: 14px;
+			font-weight: 700;
+		}
+
 		.empty {
 			margin: 0;
 			color: var(--muted);
@@ -235,6 +310,8 @@ if ($result === false) {
 		<section class="card">
 			<?php if ($errorMessage !== ''): ?>
 				<p class="error"><?php echo htmlspecialchars($errorMessage); ?></p>
+			<?php elseif ($successMessage !== ''): ?>
+				<p class="success"><?php echo htmlspecialchars($successMessage); ?></p>
 			<?php elseif (count($builders) === 0): ?>
 				<p class="empty">No builders found. Click "Create Builder" to add your first builder.</p>
 			<?php else: ?>
@@ -263,7 +340,15 @@ if ($result === false) {
 										</span>
 									</td>
 									<td>
-										<a class="edit-btn" href="<?php echo htmlspecialchars(app_url('/admin/builder/edit_builder.php?id=' . (int) $builder['id'])); ?>">Edit</a>
+										<div class="action-inline">
+											<a class="edit-btn" href="<?php echo htmlspecialchars(app_url('/admin/builder/view_builder.php?id=' . (int) $builder['id'])); ?>">View</a>
+											<a class="edit-btn" href="<?php echo htmlspecialchars(app_url('/admin/builder/edit_builder.php?id=' . (int) $builder['id'])); ?>">Edit</a>
+											<form class="inline-form" method="post" action="" onsubmit="return confirm('Delete this builder? This action cannot be undone.');">
+												<input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+												<input type="hidden" name="delete_builder_id" value="<?php echo (int) $builder['id']; ?>">
+												<button class="delete-btn" type="submit">Delete</button>
+											</form>
+										</div>
 									</td>
 								</tr>
 							<?php endforeach; ?>

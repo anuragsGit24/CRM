@@ -3,6 +3,9 @@
 require_once __DIR__ . '/../auth/middleware.php';
 require_admin();
 
+// Load reusable CSRF helper.
+require_once __DIR__ . '/../auth/csrf.php';
+
 // Step 2: Load database connection for select/update queries.
 require_once __DIR__ . '/../config/database.php';
 
@@ -56,6 +59,11 @@ $formData = [
 
 // Step 5: Process update only when admin submits the form.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $userData) {
+    // Validate CSRF token before accepting updates.
+    if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+        $errorMessage = 'Invalid request token. Please refresh and try again.';
+    }
+
     // Collect updated input.
     $formData['name'] = trim($_POST['name'] ?? '');
     $formData['last_name'] = trim($_POST['last_name'] ?? '');
@@ -72,23 +80,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $userData) {
     $allowedStatuses = ['active', 'inactive'];
 
     // Basic validation.
-    if (
+    if ($errorMessage === '' && (
         $formData['name'] === '' ||
         $formData['last_name'] === '' ||
         $formData['username'] === '' ||
         $formData['email'] === ''
-    ) {
+    )) {
         $errorMessage = 'Please fill all required fields.';
-    } elseif (!filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
+    } elseif ($errorMessage === '' && !filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
         $errorMessage = 'Please enter a valid email address.';
-    } elseif (!in_array($formData['role'], $allowedRoles, true)) {
+    } elseif ($errorMessage === '' && !in_array($formData['role'], $allowedRoles, true)) {
         $errorMessage = 'Invalid role selected.';
-    } elseif (!in_array($formData['status'], $allowedStatuses, true)) {
+    } elseif ($errorMessage === '' && !in_array($formData['status'], $allowedStatuses, true)) {
         $errorMessage = 'Invalid status selected.';
-    } elseif ($newPassword !== '' && strlen($newPassword) < 6) {
+    } elseif ($errorMessage === '' && $newPassword !== '' && strlen($newPassword) < 6) {
         // Validate password only if admin entered a new one.
         $errorMessage = 'New password must be at least 6 characters.';
-    } else {
+    } elseif ($errorMessage === '') {
         /*
          |----------------------------------------------------------------------
          | Step 6: Update user using prepared statements
@@ -402,6 +410,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $userData) {
 
             <?php if ($userData): ?>
                 <form method="post" action="">
+                    <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
                     <div class="field">
                         <label for="name">First Name *</label>
                         <input id="name" name="name" type="text" required value="<?php echo htmlspecialchars($formData['name']); ?>" placeholder="Enter first name">

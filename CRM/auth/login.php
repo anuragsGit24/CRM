@@ -5,6 +5,9 @@ session_start();
 // Include URL helper for reliable redirects and links.
 require_once __DIR__ . '/../config/app.php';
 
+// Include reusable CSRF helper.
+require_once __DIR__ . '/csrf.php';
+
 // Include database connection.
 require_once __DIR__ . '/../config/database.php';
 
@@ -25,14 +28,19 @@ $loginInput = '';
 
 // Run this block only when form is submitted with POST.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Validate CSRF token before processing credentials.
+    if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
+        $error = 'Invalid request token. Please refresh and try again.';
+    }
+
     // Get input and trim spaces for cleaner validation.
     $loginInput = trim($_POST['login'] ?? '');
     $password = $_POST['password'] ?? '';
 
     // Basic empty-field checks for user experience.
-    if ($loginInput === '' || $password === '') {
+    if ($error === '' && ($loginInput === '' || $password === '')) {
         $error = 'Please enter username/email and password.';
-    } else {
+    } elseif ($error === '') {
         /*
          |--------------------------------------------------------------------
          | Secure query with prepared statement
@@ -163,6 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .intro h1 {
             margin: 0;
+            margin-top: 10px;
             font-size: clamp(28px, 3.4vw, 40px);
             line-height: 1.1;
         }
@@ -313,7 +322,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <section class="intro">
             <div>
                 <span class="badge">CRM Secure Access</span>
-                <h2>Welcome Back</h2>
+                <h1>Welcome Back</h1>
                 <p>Sign in to continue managing builders, projects, and customers in one place.</p>
             </div>
 
@@ -336,6 +345,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="post" action="">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
                 <div class="field">
                     <label for="login">Username or Email</label>
                     <input
