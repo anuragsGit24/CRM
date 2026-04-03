@@ -1,17 +1,10 @@
 <?php
-// Start session so we can store and read logged-in user information.
 session_start();
 
-// Include URL helper for reliable redirects and links.
 require_once __DIR__ . '/../config/app.php';
-
-// Include reusable CSRF helper.
 require_once __DIR__ . '/csrf.php';
-
-// Include database connection.
 require_once __DIR__ . '/../config/database.php';
 
-// If user is already logged in, send to role dashboard.
 if (isset($_SESSION['user_id'], $_SESSION['role'])) {
     if ($_SESSION['role'] === 'admin') {
         header('Location: ' . app_url('/admin/dashboard.php'));
@@ -22,88 +15,89 @@ if (isset($_SESSION['user_id'], $_SESSION['role'])) {
     exit;
 }
 
-// Variables for showing friendly errors and keeping old form input.
-$error = '';
-$success = '';
-$loginInput = '';
+$errorMessage = '';
+$successMessage = '';
+$formData = [
+    'name' => '',
+    'last_name' => '',
+    'username' => '',
+    'email' => '',
+    'contact' => '',
+];
 
-if (isset($_GET['registered']) && $_GET['registered'] === '1') {
-    $success = 'Account created successfully. Please sign in.';
-}
-
-// Run this block only when form is submitted with POST.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Validate CSRF token before processing credentials.
     if (!csrf_is_valid($_POST['csrf_token'] ?? null)) {
-        $error = 'Invalid request token. Please refresh and try again.';
+        $errorMessage = 'Invalid request token. Please refresh and try again.';
     }
 
-    // Get input and trim spaces for cleaner validation.
-    $loginInput = trim($_POST['login'] ?? '');
+    $formData['name'] = trim($_POST['name'] ?? '');
+    $formData['last_name'] = trim($_POST['last_name'] ?? '');
+    $formData['username'] = trim($_POST['username'] ?? '');
+    $formData['email'] = trim($_POST['email'] ?? '');
+    $formData['contact'] = trim($_POST['contact'] ?? '');
     $password = $_POST['password'] ?? '';
+    $confirmPassword = $_POST['confirm_password'] ?? '';
 
-    // Basic empty-field checks for user experience.
-    if ($error === '' && ($loginInput === '' || $password === '')) {
-        $error = 'Please enter username/email and password.';
-    } elseif ($error === '') {
-        /*
-         |--------------------------------------------------------------------
-         | Secure query with prepared statement
-         |--------------------------------------------------------------------
-         | We allow login by username OR email.
-         | Prepared statements protect against SQL injection attacks.
-         */
-        $sql = 'SELECT id, username, email, password, role, status FROM users WHERE username = ? OR email = ? LIMIT 1';
+    if ($errorMessage === '' && (
+        $formData['name'] === '' ||
+        $formData['last_name'] === '' ||
+        $formData['username'] === '' ||
+        $formData['email'] === '' ||
+        $password === '' ||
+        $confirmPassword === ''
+    )) {
+        $errorMessage = 'Please fill all required fields.';
+    } elseif ($errorMessage === '' && !filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
+        $errorMessage = 'Please enter a valid email address.';
+    } elseif ($errorMessage === '' && strlen($password) < 6) {
+        $errorMessage = 'Password must be at least 6 characters.';
+    } elseif ($errorMessage === '' && $password !== $confirmPassword) {
+        $errorMessage = 'Password and confirm password do not match.';
+    } elseif ($errorMessage === '') {
+        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+        $role = 'user';
+        $status = 'active';
+
+        $sql = 'INSERT INTO users (name, last_name, username, email, password, contact, role, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
         $stmt = $conn->prepare($sql);
 
         if (!$stmt) {
-            $error = 'Something went wrong. Please try again.';
+            $errorMessage = 'Unable to prepare database query. Please try again.';
         } else {
-            // Bind both placeholders with same login input.
-            $stmt->bind_param('ss', $loginInput, $loginInput);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $user = $result->fetch_assoc();
-            $stmt->close();
+            $stmt->bind_param(
+                'ssssssss',
+                $formData['name'],
+                $formData['last_name'],
+                $formData['username'],
+                $formData['email'],
+                $hashedPassword,
+                $formData['contact'],
+                $role,
+                $status
+            );
 
-            // Validate user existence first.
-            if (!$user) {
-                $error = 'Invalid credentials.';
-            } elseif ($user['status'] !== 'active') {
-                // Prevent login for inactive users.
-                $error = 'Your account is inactive. Please contact admin.';
-            } elseif (!password_verify($password, $user['password'])) {
-                // Verify entered password against hashed password in DB.
-                $error = 'Invalid credentials.';
-            } else {
-                // Security step: regenerate session ID after successful login.
-                session_regenerate_id(true);
-
-                // Store only needed user data in session.
-                $_SESSION['user_id'] = (int) $user['id'];
-                $_SESSION['role'] = $user['role'];
-                $_SESSION['username'] = $user['username'];
-
-                // Role-based redirect.
-                if ($user['role'] === 'admin') {
-                    header('Location: ' . app_url('/admin/dashboard.php'));
-                    exit;
-                }
-
-                header('Location: ' . app_url('/user/dashboard.php'));
+            if ($stmt->execute()) {
+                header('Location: ' . app_url('/auth/login.php?registered=1'));
                 exit;
             }
+
+            if ((int) $stmt->errno === 1062) {
+                $errorMessage = 'Username or email already exists. Please choose another.';
+            } else {
+                $errorMessage = 'Failed to create account. Please try again.';
+            }
+
+            $stmt->close();
         }
     }
 }
 ?>
-
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CRM Login</title>
+    <title>CRM Sign Up</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -119,13 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --brand-2: #2b8a3e;
             --danger-bg: #ffe3e3;
             --danger-text: #c92a2a;
-            --radius: 16px;
+            --success-bg: #d3f9d8;
+            --success-text: #2b8a3e;
             --shadow: 0 22px 55px rgba(16, 42, 67, 0.12);
         }
 
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
 
         body {
             margin: 0;
@@ -133,9 +126,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-family: 'Manrope', sans-serif;
             color: var(--ink);
             background:
-                radial-gradient(circle at 20% 20%, rgba(11, 114, 133, 0.14), transparent 40%),
-                radial-gradient(circle at 80% 0%, rgba(43, 138, 62, 0.18), transparent 35%),
-                linear-gradient(140deg, var(--bg-1), var(--bg-2));
+                radial-gradient(circle at 20% 20%, rgba(11, 44, 95, 0.12), transparent 40%),
+                radial-gradient(circle at 80% 0%, rgba(11, 114, 133, 0.1), transparent 35%),
+                linear-gradient(140deg, #f6fbff, #eef8f2);
             padding: 0;
         }
 
@@ -201,7 +194,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             width: 140%;
             height: 140%;
             object-fit: contain;
-            filter: brightness(0.85) saturate(1.00) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+            filter: brightness(0.95) saturate(1.05);
         }
 
         .badge {
@@ -218,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         .intro h1 {
             margin: 0;
-            margin-top: 20px;
+            margin-top: 15px;
             font-size: clamp(28px, 3.4vw, 42px);
             line-height: 1.1;
             position: relative;
@@ -267,6 +260,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flex: 1;
             position: relative;
             z-index: 3;
+        }
+
+        .intro > div:first-of-type {
+            position: relative;
+            z-index: 2;
+        }
+
+        .intro > ul {
+            position: relative;
+            z-index: 2;
         }
 
         .intro > div:first-of-type {
@@ -346,8 +349,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         form {
             display: grid;
-            gap: 18px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
             margin-top: 8px;
+        }
+
+        .field {
+            display: grid;
+            gap: 8px;
+        }
+
+        .field.full {
+            grid-column: 1 / -1;
         }
 
         label {
@@ -357,21 +370,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             text-transform: capitalize;
         }
 
-        .field {
-            display: grid;
-            gap: 8px;
-        }
-
         input {
             width: 100%;
             border: 1.5px solid var(--line);
             border-radius: 10px;
             padding: 13px 16px;
             font-size: 15px;
-            transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
             outline: none;
             background: #ffffff;
             font-family: 'Manrope', sans-serif;
+            transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
         }
 
         input::placeholder {
@@ -389,6 +397,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         .btn {
+            grid-column: 1 / -1;
             margin-top: 8px;
             border: none;
             border-radius: 10px;
@@ -413,57 +422,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             box-shadow: 0 4px 12px rgba(11, 44, 95, 0.25);
         }
 
-        .error {
+        .error,
+        .success {
+            grid-column: 1 / -1;
             margin: 0;
-            padding: 10px 12px;
+            padding: 12px 14px;
             border-radius: 10px;
-            background: var(--danger-bg);
-            color: var(--danger-text);
-            border: 1px solid #ffc9c9;
             font-size: 14px;
-            font-weight: 700;
+            font-weight: 600;
+        }
+
+        .error {
+            background: #ffe3e3;
+            color: #c92a2a;
+            border: 1px solid #ffc9c9;
         }
 
         .success {
-            margin: 0;
-            padding: 10px 12px;
-            border-radius: 10px;
             background: #d3f9d8;
             color: #2b8a3e;
             border: 1px solid #b2f2bb;
-            font-size: 14px;
-            font-weight: 700;
-        }
-
-        .hint {
-            margin: 0;
-            color: var(--muted);
-            font-size: 13px;
-            line-height: 1.5;
         }
 
         .auth-link {
             margin: 0;
+            grid-column: 1 / -1;
             color: var(--muted);
             font-size: 14px;
         }
 
         .auth-link a {
-            color: #0b7285;
+            color: #0b2c5f;
             font-weight: 700;
             text-decoration: none;
-        }
-
-        @keyframes rise {
-            from {
-                opacity: 0;
-                transform: translateY(8px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
         }
 
         @media (max-width: 960px) {
@@ -493,6 +484,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             .crm-icon svg {
                 width: 32px;
                 height: 32px;
+            }
+
+            form {
+                grid-template-columns: 1fr;
             }
         }
 
@@ -538,6 +533,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 width: 28px;
                 height: 28px;
             }
+
+            form {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
     <link rel="stylesheet" href="<?php echo htmlspecialchars(app_url('/assets/css/crm-theme.css')); ?>">
@@ -564,10 +563,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </svg>
                     </div>
                     <div class="intro-text">
-                        <span class="badge">CRM Secure Access</span>
-                        <h1>Welcome Back</h1>
+                        <span class="badge">CRM New Account</span>
+                        <h1>Create Your Account</h1>
                     </div>
                 </div>
+                <p>Register once and start managing customer leads, projects, and follow-ups from one place.</p>
             </div>
 
             <div class="intro-bg">
@@ -575,61 +575,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <ul class="steps">
-                <li>Login with your username or email</li>
-                <li>Access is controlled by your user role</li>
-                <li>Inactive accounts are blocked for safety</li>
+                <li>Sign up with your basic profile details</li>
+                <li>Your account is created as a standard user</li>
+                <li>Use your new credentials to sign in</li>
             </ul>
         </section>
 
         <section class="panel">
             <div>
-                <h2>Sign In</h2>
-                <p class="sub">Use your CRM credentials to continue.</p>
+                <h2>Sign Up</h2>
+                <p class="sub">Create a new account to access your CRM workspace.</p>
             </div>
-
-            <?php if ($error !== ''): ?>
-                <!-- Show user-friendly error message from server validation. -->
-                <p class="error"><?php echo htmlspecialchars($error); ?></p>
-            <?php endif; ?>
-
-            <?php if ($success !== ''): ?>
-                <p class="success"><?php echo htmlspecialchars($success); ?></p>
-            <?php endif; ?>
 
             <form method="post" action="">
                 <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(csrf_token()); ?>">
+
+                <?php if ($errorMessage !== ''): ?>
+                    <p class="error"><?php echo htmlspecialchars($errorMessage); ?></p>
+                <?php endif; ?>
+
+                <?php if ($successMessage !== ''): ?>
+                    <p class="success"><?php echo htmlspecialchars($successMessage); ?></p>
+                <?php endif; ?>
+
                 <div class="field">
-                    <label for="login">Username or Email</label>
-                    <input
-                        id="login"
-                        name="login"
-                        type="text"
-                        value="<?php echo htmlspecialchars($loginInput); ?>"
-                        placeholder="Enter username or email"
-                        autocomplete="username"
-                        required
-                    >
+                    <label for="name">First Name</label>
+                    <input id="name" name="name" type="text" value="<?php echo htmlspecialchars($formData['name']); ?>" required>
+                </div>
+
+                <div class="field">
+                    <label for="last_name">Last Name</label>
+                    <input id="last_name" name="last_name" type="text" value="<?php echo htmlspecialchars($formData['last_name']); ?>" required>
+                </div>
+
+                <div class="field">
+                    <label for="username">Username</label>
+                    <input id="username" name="username" type="text" value="<?php echo htmlspecialchars($formData['username']); ?>" required>
+                </div>
+
+                <div class="field">
+                    <label for="email">Email</label>
+                    <input id="email" name="email" type="email" value="<?php echo htmlspecialchars($formData['email']); ?>" required>
+                </div>
+
+                <div class="field full">
+                    <label for="contact">Contact Number</label>
+                    <input id="contact" name="contact" type="text" value="<?php echo htmlspecialchars($formData['contact']); ?>">
                 </div>
 
                 <div class="field">
                     <label for="password">Password</label>
-                    <input
-                        id="password"
-                        name="password"
-                        type="password"
-                        placeholder="Enter your password"
-                        autocomplete="current-password"
-                        required
-                    >
+                    <input id="password" name="password" type="password" minlength="6" required>
                 </div>
 
-                <button class="btn" type="submit">Login to Dashboard</button>
-            </form>
+                <div class="field">
+                    <label for="confirm_password">Confirm Password</label>
+                    <input id="confirm_password" name="confirm_password" type="password" minlength="6" required>
+                </div>
 
-            <p class="hint">
-                For security, this form uses prepared statements and password hash verification on the server.
-            </p>
-            <p class="auth-link">Don't have an account? <a href="<?php echo htmlspecialchars(app_url('/auth/signup.php')); ?>">Create one here</a></p>
+                <button class="btn" type="submit">Create Account</button>
+
+                <p class="auth-link">Already have an account? <a href="<?php echo htmlspecialchars(app_url('/auth/login.php')); ?>">Sign In</a></p>
+            </form>
         </section>
     </main>
 </body>

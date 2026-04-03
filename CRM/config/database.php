@@ -3,7 +3,7 @@
  |------------------------------------------------------------
  | Database Connection (MySQLi)
  |------------------------------------------------------------
- | Update these values if your local MySQL credentials differ.
+ | Update these values if your local MySQL credentials differ. this is my personal db configs
  */
 $dbHost = 'localhost';
 $dbUser = 'root';
@@ -18,5 +18,5 @@ if ($conn->connect_error) {
     die('Database connection failed: ' . $conn->connect_error);
 }
 
-// Force UTF-8 support for safe and correct text handling.
+// UTF-8 support karo for safe text handling
 $conn->set_charset('utf8mb4');

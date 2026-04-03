@@ -11,15 +11,12 @@
 if (!function_exists('app_base_path')) {
     function app_base_path(): string
     {
-        // SCRIPT_NAME tells us where the current file is being executed from.
         $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
 
-        // If project is running in this subfolder, use it as base path.
         if (strpos($scriptName, '/Internship/CRM/') !== false) {
             return '/Internship/CRM';
         }
 
-        // Otherwise assume root deployment.
         return '';
     }
 }
