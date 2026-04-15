@@ -43,6 +43,27 @@ try {
 	$userIdSanitized = Sanitizer::sanitizeInt($body['user_id'] ?? 0);
 	$userId = $userIdSanitized > 0 ? $userIdSanitized : null;
 
+	$sanitizeCoordinate = static function (mixed $value, float $min, float $max): ?float {
+		if ($value === null || $value === '') {
+			return null;
+		}
+
+		$floatValue = filter_var($value, FILTER_VALIDATE_FLOAT);
+		if ($floatValue === false) {
+			return null;
+		}
+
+		$coordinate = (float) $floatValue;
+		if ($coordinate < $min || $coordinate > $max) {
+			return null;
+		}
+
+		return $coordinate;
+	};
+
+	$geoLat = $sanitizeCoordinate($body['geo_lat'] ?? null, -90.0, 90.0);
+	$geoLng = $sanitizeCoordinate($body['geo_lng'] ?? null, -180.0, 180.0);
+
 	if ($query === '') {
 		$featuredLimit = 20;
 
@@ -108,6 +129,24 @@ try {
 	];
 
 	$parsed = array_merge($defaultParsed, QueryParser::parse($query));
+	if (($parsed['geo_intent'] ?? false) === true) {
+		// Keep non-geo filters from the same query, e.g. "2 bhk near me".
+		$queryWithoutGeoIntent = preg_replace('/\b(?:near\s+me|nearby|close\s+to\s+me|around\s+me)\b/i', ' ', $query) ?? $query;
+		$queryWithoutGeoIntent = trim((string) (preg_replace('/\s+/', ' ', $queryWithoutGeoIntent) ?? $queryWithoutGeoIntent));
+
+		if ($queryWithoutGeoIntent !== '') {
+			$refinedParsed = array_merge($defaultParsed, QueryParser::parse($queryWithoutGeoIntent));
+			foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession', 'raw_location'] as $field) {
+				if ($refinedParsed[$field] !== null) {
+					$parsed[$field] = $refinedParsed[$field];
+				}
+			}
+		}
+
+		if ($geoLat === null || $geoLng === null) {
+			Response::error('Please enable location and send geo_lat and geo_lng for near me search', 400);
+		}
+	}
 
 	$locationId = null;
 	if ($parsed['raw_location'] !== null) {
@@ -115,8 +154,11 @@ try {
 		$locationId = $resolver->resolve((string) $parsed['raw_location']);
 	}
 
+	$geoSearchLat = (($parsed['geo_intent'] ?? false) === true) ? $geoLat : null;
+	$geoSearchLng = (($parsed['geo_intent'] ?? false) === true) ? $geoLng : null;
+
 	$builder = new SearchQueryBuilder($pdo);
-	$built = $builder->build($parsed, $locationId, $page, $limit);
+	$built = $builder->build($parsed, $locationId, $page, $limit, $geoSearchLat, $geoSearchLng);
 
 	$runCount = static function (PDO $pdo, array $builtQuery): int {
 		$countStmt = $pdo->prepare($builtQuery['count_sql']);
@@ -129,13 +171,13 @@ try {
 
 	if ($totalCount === 0) {
 		$parsed['max_budget'] = null;
-		$built = $builder->build($parsed, $locationId, $page, $limit);
+		$built = $builder->build($parsed, $locationId, $page, $limit, $geoSearchLat, $geoSearchLng);
 		$totalCount = $runCount($pdo, $built);
 	}
 
 	if ($totalCount === 0) {
 		$parsed['bhk'] = null;
-		$built = $builder->build($parsed, $locationId, $page, $limit);
+		$built = $builder->build($parsed, $locationId, $page, $limit, $geoSearchLat, $geoSearchLng);
 		$totalCount = $runCount($pdo, $built);
 		$isRelaxed = true;
 	}
@@ -146,7 +188,7 @@ try {
 
 	try {
 		$logger = new SearchLogger($pdo);
-		$logger->log($query, $parsed, $totalCount, $platform, $userId);
+		$logger->log($query, $parsed, $totalCount, $platform, $userId, $geoSearchLat, $geoSearchLng);
 	} catch (Throwable $logException) {
 		error_log('Search logger wrapper failed: ' . $logException->getMessage());
 	}
@@ -160,6 +202,8 @@ try {
 
 	if (($parsed['geo_intent'] ?? false) === true) {
 		$queryInterpreted['geo_intent'] = true;
+		$queryInterpreted['geo_lat'] = $geoSearchLat;
+		$queryInterpreted['geo_lng'] = $geoSearchLng;
 	}
 
 	if ($locationId !== null) {
