@@ -6,6 +6,7 @@ final class QueryParser
 	public static function parse(string $rawQuery): array
 	{
 		$working = self::normalizeInput($rawQuery);
+		$working = self::removeGenericPropertyTerms($working);
 
 		if ($working === '') {
 			return self::defaultPayload();
@@ -192,6 +193,19 @@ final class QueryParser
 		}
 
 		$clean = preg_replace('/[^\p{L}\p{N}\s\.,]/u', ' ', $clean) ?? $clean;
+		$clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
+
+		return trim($clean);
+	}
+
+	private static function removeGenericPropertyTerms(string $value): string
+	{
+		$clean = preg_replace(
+			'/\b(?:flat|flats|property|properties|house|houses|home|homes|apartment|apartments|residence|residential|condo|condos|villa|villas)\b/i',
+			' ',
+			$value
+		) ?? $value;
+
 		$clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
 
 		return trim($clean);

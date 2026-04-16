@@ -32,11 +32,58 @@ amenities_list = [
     "Pool,Gym,Jogging Track"
 ]
 
+# Prefer exact coordinates tied to each locality.
+# If the database already has latitude/longitude values, those are used first.
+# Otherwise, these coordinates are written back to the location table and reused for projects.
+LOCATION_COORDINATES = {
+    "Vikhroli": (19.107550, 72.921200),
+    "Powai": (19.117600, 72.905400),
+    "Andheri": (19.113600, 72.869700),
+    "Thane": (19.218300, 72.978100),
+    "Mulund": (19.172600, 72.956200),
+    "Borivali": (19.230700, 72.856700),
+    "Kanjurmarg": (19.131000, 72.934000),
+    "Ghatkopar": (19.089600, 72.908900),
+}
+
+
+def resolve_coordinates(location_name, latitude=None, longitude=None):
+    """Return a stable latitude/longitude pair for a location."""
+    try:
+        if latitude is not None and longitude is not None:
+            lat_value = float(latitude)
+            lng_value = float(longitude)
+            if lat_value != 0.0 and lng_value != 0.0:
+                return lat_value, lng_value
+    except (TypeError, ValueError):
+        pass
+
+    fallback = LOCATION_COORDINATES.get(location_name)
+    if fallback:
+        return fallback
+
+    return None, None
+
 # =========================
 # 🔹 FETCH FK
 # =========================
-cursor.execute("SELECT id,name FROM location")
-locations = cursor.fetchall()
+cursor.execute("SELECT id, name, latitude, longitude FROM location WHERE status = 1")
+raw_locations = cursor.fetchall()
+
+locations = []
+for loc_id, loc_name, loc_lat, loc_lng in raw_locations:
+    resolved_lat, resolved_lng = resolve_coordinates(loc_name, loc_lat, loc_lng)
+    if resolved_lat is None or resolved_lng is None:
+        raise Exception(f"❌ Missing coordinates for location: {loc_name}")
+
+    # Keep the database aligned with the exact coordinates used for seeding.
+    if loc_lat is None or loc_lng is None or float(loc_lat) == 0.0 or float(loc_lng) == 0.0:
+        cursor.execute(
+            "UPDATE location SET latitude = %s, longitude = %s WHERE id = %s",
+            (resolved_lat, resolved_lng, loc_id)
+        )
+
+    locations.append((loc_id, loc_name, resolved_lat, resolved_lng))
 
 cursor.execute("SELECT id FROM builder")
 builders = [x[0] for x in cursor.fetchall()]
@@ -71,7 +118,7 @@ VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
 
 for i in range(1, 501):
 
-    loc_id, loc_name = random.choice(locations)
+    loc_id, loc_name, loc_lat, loc_lng = random.choice(locations)
     builder_id = random.choice(builders)
 
     name = f"{loc_name} {random.choice(project_suffix)} {i}"
@@ -112,14 +159,14 @@ for i in range(1, 501):
         f"Agent {i}",
         rand_phone(),
         rand_date(100, 500),
-        "map_embed",
-        "map_link",
+        f"https://www.google.com/maps/search/?api=1&query={loc_lat:.6f},{loc_lng:.6f}",
+        f"https://www.google.com/maps/search/?api=1&query={loc_lat:.6f},{loc_lng:.6f}",
         datetime.now(),
         datetime.now(),
         "header.jpg",
         "footer.jpg",
         "Whatsapp summary",
-        "19.07,72.87",
+        f"{loc_lat:.6f},{loc_lng:.6f}",
         "Top msg",
         "Middle msg",
         "Bottom msg",
