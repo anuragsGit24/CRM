@@ -23,6 +23,9 @@ final class SearchQueryBuilder
 		$limit = $limit > 0 ? $limit : 20;
 		$offset = ($page - 1) * $limit;
 
+		$projectLatitudeExpression = "COALESCE(NULLIF(CAST(TRIM(SUBSTRING_INDEX(p.latlong, ',', 1)) AS DECIMAL(10, 6)), 0), l.latitude)";
+		$projectLongitudeExpression = "COALESCE(NULLIF(CAST(TRIM(SUBSTRING_INDEX(p.latlong, ',', -1)) AS DECIMAL(10, 6)), 0), l.longitude)";
+
 		$selectFields = [
 			'p.id AS project_id',
 			'p.name AS project_name',
@@ -36,8 +39,10 @@ final class SearchQueryBuilder
 			'p.flat_configuration',
 			'b.name AS builder_name',
 			'l.name AS location_name',
-			'l.latitude',
-			'l.longitude',
+			$projectLatitudeExpression . ' AS latitude',
+			$projectLongitudeExpression . ' AS longitude',
+			'l.latitude AS location_latitude',
+			'l.longitude AS location_longitude',
 			'f.type AS flat_type',
 			'f.base_price',
 			'f.total_charge',
@@ -71,8 +76,8 @@ final class SearchQueryBuilder
 						1,
 						GREATEST(
 							-1,
-							COS(RADIANS(?)) * COS(RADIANS(l.latitude)) * COS(RADIANS(l.longitude) - RADIANS(?))
-							+ SIN(RADIANS(?)) * SIN(RADIANS(l.latitude))
+							COS(RADIANS(?)) * COS(RADIANS(' . $projectLatitudeExpression . ')) * COS(RADIANS(' . $projectLongitudeExpression . ') - RADIANS(?))
+							+ SIN(RADIANS(?)) * SIN(RADIANS(' . $projectLatitudeExpression . '))
 						)
 					)
 				)
@@ -83,9 +88,9 @@ final class SearchQueryBuilder
 			$selectParams[] = $geoLng;
 			$selectParams[] = $geoLat;
 
-			$whereConditions[] = 'l.latitude IS NOT NULL';
-			$whereConditions[] = 'l.longitude IS NOT NULL';
-			$whereConditions[] = $distanceExpression . ' <= COALESCE(NULLIF(l.dist_range, 0), 5)';
+			$whereConditions[] = $projectLatitudeExpression . ' IS NOT NULL';
+			$whereConditions[] = $projectLongitudeExpression . ' IS NOT NULL';
+			$whereConditions[] = $distanceExpression . ' <= COALESCE(NULLIF(l.dist_range, 0), 3)';
 
 			$whereParams[] = $geoLat;
 			$whereParams[] = $geoLng;

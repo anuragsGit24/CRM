@@ -12,7 +12,7 @@ final class LocationResolver
 
 	public function resolve(string $rawLocation): ?int
 	{
-		$normalized = trim($rawLocation);
+		$normalized = self::normalizeRawLocation($rawLocation);
 		if ($normalized === '') {
 			return null;
 		}
@@ -98,5 +98,23 @@ final class LocationResolver
 		}
 
 		return $results;
+	}
+
+	private static function normalizeRawLocation(string $rawLocation): string
+	{
+		$normalized = trim($rawLocation);
+		if ($normalized === '') {
+			return '';
+		}
+
+		$normalized = preg_replace(
+			'/^(?:in|at|on|for|from|to|near|around|within|inside|of|the)\s+/i',
+			'',
+			$normalized
+		) ?? $normalized;
+
+		$normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+		return trim($normalized, " \t\n\r\0\x0B,.");
 	}
 }

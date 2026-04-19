@@ -54,7 +54,7 @@ final class QueryParser
 
 		// 6) Raw location = remaining text after all removals.
 		$remaining = self::normalizeInput($working);
-		$parsed['raw_location'] = $remaining !== '' ? $remaining : null;
+		$parsed['raw_location'] = self::normalizeRawLocation($remaining);
 
 		return $parsed;
 	}
@@ -209,5 +209,28 @@ final class QueryParser
 		$clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
 
 		return trim($clean);
+	}
+
+	private static function normalizeRawLocation(string $value): ?string
+	{
+		if ($value === '') {
+			return null;
+		}
+
+		$clean = preg_replace(
+			'/^(?:in|at|on|for|from|to|near|around|within|inside|of|the)\s+/i',
+			'',
+			$value
+		) ?? $value;
+
+		$clean = preg_replace(
+			'/\s+(?:in|at|on|for|from|to|near|around|within|inside|of|the)\s*$/i',
+			'',
+			$clean
+		) ?? $clean;
+
+		$clean = trim($clean, " \t\n\r\0\x0B,.");
+
+		return $clean !== '' ? $clean : null;
 	}
 }

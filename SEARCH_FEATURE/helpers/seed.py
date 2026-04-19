@@ -1,252 +1,355 @@
-import mysql.connector
+import math
 import random
-from datetime import datetime, timedelta
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple
 
-# =========================
-# 🔹 DB CONFIG
-# =========================
-conn = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="",
-    database="real_estate_db"
-)
-cursor = conn.cursor()
+import mysql.connector
 
-# =========================
-# 🔹 HELPERS
-# =========================
-def rand_date(start=-1000, end=1000):
-    return datetime.now() + timedelta(days=random.randint(start, end))
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "",
+    "database": "real_estate_db",
+}
 
-def rand_phone():
-    return random.randint(9000000000, 9999999999)
+LATITUDE_JITTER = 0.01
+LONGITUDE_JITTER = 0.01
+PROJECT_LATITUDE_JITTER = 0.01
+PROJECT_LONGITUDE_JITTER = 0.01
 
-areas = ["Vikhroli", "Powai", "Andheri", "Thane", "Mulund", "Borivali", "Kanjurmarg", "Ghatkopar"]
-project_suffix = ["Heights", "Residency", "Greens", "Skyline", "Tower", "Grande", "Urbania"]
+MUMBAI_BOUNDS = {
+    "min_lat": 18.85,
+    "max_lat": 19.50,
+    "min_lng": 72.75,
+    "max_lng": 73.30,
+}
 
-amenities_list = [
-    "Gym,Swimming Pool,Clubhouse",
-    "Garden,Kids Play Area,Parking",
-    "Gym,Parking,Security",
-    "Pool,Gym,Jogging Track"
+MUMBAI_CENTROID = (19.0760, 72.8777)
+
+STATIONS = [
+    {"name": "Masjid", "lat": 18.9461, "lng": 72.8361, "line": "Western"},
+    {"name": "Bhandup", "lat": 19.1421, "lng": 72.9373, "line": "Western"},
+    {"name": "Vikhroli", "lat": 19.1111, "lng": 72.9272, "line": "Western"},
+    {"name": "Sandhurst Road", "lat": 18.9525, "lng": 72.8354, "line": "Western/Central"},
+    {"name": "Lower Parel", "lat": 18.9950, "lng": 72.8315, "line": "Western"},
+    {"name": "Prabhadevi", "lat": 19.0075, "lng": 72.8361, "line": "Western"},
+    {"name": "Mahim Junction", "lat": 19.0410, "lng": 72.8471, "line": "Western"},
+    {"name": "Khar Road", "lat": 19.0691, "lng": 72.8402, "line": "Western"},
+    {"name": "Jogeshwari", "lat": 19.1360, "lng": 72.8488, "line": "Western"},
+    {"name": "Malad", "lat": 19.1868, "lng": 72.8485, "line": "Western"},
+    {"name": "Mira Road", "lat": 19.2818, "lng": 72.8558, "line": "Western"},
+    {"name": "Naigaon", "lat": 19.3499, "lng": 72.8398, "line": "Western"},
+    {"name": "Nalla Sopara", "lat": 19.4172, "lng": 72.8196, "line": "Western"},
+    {"name": "Virar", "lat": 19.4542, "lng": 72.8115, "line": "Western"},
+    {"name": "Sandhurst Road (Low Level)", "lat": 18.9525, "lng": 72.8354, "line": "Central"},
+    {"name": "Currey Road", "lat": 18.9944, "lng": 72.8335, "line": "Central"},
+    {"name": "Chinchpokli", "lat": 18.9863, "lng": 72.8302, "line": "Central"},
+    {"name": "Vidyavihar", "lat": 19.0792, "lng": 72.8973, "line": "Central"},
+    {"name": "Kanjurmarg", "lat": 19.1294, "lng": 72.9304, "line": "Central"},
+    {"name": "Nahur", "lat": 19.1539, "lng": 72.9463, "line": "Central"},
+    {"name": "Kalwa", "lat": 19.1997, "lng": 72.9937, "line": "Central"},
+    {"name": "Mumbra", "lat": 19.1895, "lng": 73.0248, "line": "Central"},
+    {"name": "Diva Junction", "lat": 19.1873, "lng": 73.0441, "line": "Central"},
+    {"name": "Dombivli", "lat": 19.2184, "lng": 73.0867, "line": "Central"},
+    {"name": "Thakurli", "lat": 19.2238, "lng": 73.0991, "line": "Central"},
+    {"name": "Vitthalwadi", "lat": 19.2319, "lng": 73.1465, "line": "Central"},
+    {"name": "Ulhasnagar", "lat": 19.2215, "lng": 73.1643, "line": "Central"},
+    {"name": "Ambernath", "lat": 19.2069, "lng": 73.1872, "line": "Central"},
+    {"name": "Badlapur", "lat": 19.1678, "lng": 73.2263, "line": "Central"},
+    {"name": "Cotton Green", "lat": 18.9861, "lng": 72.8436, "line": "Harbour"},
+    {"name": "Sewri", "lat": 19.0003, "lng": 72.8551, "line": "Harbour"},
+    {"name": "GTB Nagar", "lat": 19.0373, "lng": 72.8660, "line": "Harbour"},
+    {"name": "Chunabhatti", "lat": 19.0494, "lng": 72.8752, "line": "Harbour"},
+    {"name": "Tilak Nagar", "lat": 19.0673, "lng": 72.8931, "line": "Harbour"},
+    {"name": "Govandi", "lat": 19.0553, "lng": 72.9152, "line": "Harbour"},
+    {"name": "Juinagar", "lat": 19.0526, "lng": 73.0184, "line": "Trans-Harbour"},
+    {"name": "Sanpada", "lat": 19.0628, "lng": 73.0094, "line": "Trans-Harbour"},
+    {"name": "Koparkhairane", "lat": 19.1039, "lng": 73.0108, "line": "Trans-Harbour"},
+    {"name": "Ghansoli", "lat": 19.1219, "lng": 73.0078, "line": "Trans-Harbour"},
+    {"name": "Rabale", "lat": 19.1415, "lng": 72.9982, "line": "Trans-Harbour"},
+    {"name": "Airoli", "lat": 19.1579, "lng": 72.9934, "line": "Trans-Harbour"},
 ]
 
-# Prefer exact coordinates tied to each locality.
-# If the database already has latitude/longitude values, those are used first.
-# Otherwise, these coordinates are written back to the location table and reused for projects.
-LOCATION_COORDINATES = {
-    "Vikhroli": (19.107550, 72.921200),
-    "Powai": (19.117600, 72.905400),
-    "Andheri": (19.113600, 72.869700),
-    "Thane": (19.218300, 72.978100),
-    "Mulund": (19.172600, 72.956200),
-    "Borivali": (19.230700, 72.856700),
-    "Kanjurmarg": (19.131000, 72.934000),
-    "Ghatkopar": (19.089600, 72.908900),
+# Known location names can be steered to station candidates when coordinates are missing.
+LOCATION_STATION_HINTS = {
+    "bhandup": ["Bhandup", "Nahur", "Kanjurmarg"],
+    "vikhroli": ["Kanjurmarg", "Vidyavihar"],
+    "powai": ["Kanjurmarg", "Vidyavihar"],
+    "andheri": ["Jogeshwari", "Khar Road"],
+    "thane": ["Kalwa", "Mumbra", "Diva Junction"],
+    "mulund": ["Nahur", "Kanjurmarg", "Bhandup"],
+    "borivali": ["Malad", "Mira Road"],
+    "kanjurmarg": ["Kanjurmarg"],
+    "ghatkopar": ["Vidyavihar", "Tilak Nagar"],
+    "mira road": ["Mira Road"],
+    "naigaon": ["Naigaon"],
+    "nalla sopara": ["Nalla Sopara"],
+    "nallasopara": ["Nalla Sopara"],
+    "virar": ["Virar"],
+    "dombivli": ["Dombivli", "Diva Junction"],
+    "thakurli": ["Thakurli", "Dombivli"],
+    "ulhasnagar": ["Ulhasnagar", "Vitthalwadi"],
+    "ambernath": ["Ambernath"],
+    "badlapur": ["Badlapur"],
+    "airoli": ["Airoli", "Rabale"],
+    "ghansoli": ["Ghansoli", "Rabale"],
+    "koparkhairane": ["Koparkhairane", "Ghansoli"],
+    "sanpada": ["Sanpada", "Juinagar"],
+    "jui nagar": ["Juinagar"],
+    "juinagar": ["Juinagar"],
+    "govandi": ["Govandi", "Tilak Nagar"],
+    "chembur": ["Tilak Nagar", "Govandi"],
+    "kurla": ["Tilak Nagar", "Vidyavihar"],
+    "mahim": ["Mahim Junction", "Prabhadevi"],
 }
 
 
-def resolve_coordinates(location_name, latitude=None, longitude=None):
-    """Return a stable latitude/longitude pair for a location."""
+def normalize_text(value: str) -> str:
+    cleaned_chars: List[str] = []
+    for ch in value.lower():
+        if ch.isalnum() or ch.isspace():
+            cleaned_chars.append(ch)
+        else:
+            cleaned_chars.append(" ")
+    return " ".join("".join(cleaned_chars).split())
+
+
+def parse_float(value: object) -> Optional[float]:
+    if value is None:
+        return None
     try:
-        if latitude is not None and longitude is not None:
-            lat_value = float(latitude)
-            lng_value = float(longitude)
-            if lat_value != 0.0 and lng_value != 0.0:
-                return lat_value, lng_value
+        parsed = float(value)
     except (TypeError, ValueError):
-        pass
+        return None
+    if parsed == 0.0:
+        return None
+    return parsed
 
-    fallback = LOCATION_COORDINATES.get(location_name)
-    if fallback:
-        return fallback
 
-    return None, None
-
-# =========================
-# 🔹 FETCH FK
-# =========================
-cursor.execute("SELECT id, name, latitude, longitude FROM location WHERE status = 1")
-raw_locations = cursor.fetchall()
-
-locations = []
-for loc_id, loc_name, loc_lat, loc_lng in raw_locations:
-    resolved_lat, resolved_lng = resolve_coordinates(loc_name, loc_lat, loc_lng)
-    if resolved_lat is None or resolved_lng is None:
-        raise Exception(f"❌ Missing coordinates for location: {loc_name}")
-
-    # Keep the database aligned with the exact coordinates used for seeding.
-    if loc_lat is None or loc_lng is None or float(loc_lat) == 0.0 or float(loc_lng) == 0.0:
-        cursor.execute(
-            "UPDATE location SET latitude = %s, longitude = %s WHERE id = %s",
-            (resolved_lat, resolved_lng, loc_id)
-        )
-
-    locations.append((loc_id, loc_name, resolved_lat, resolved_lng))
-
-cursor.execute("SELECT id FROM builder")
-builders = [x[0] for x in cursor.fetchall()]
-
-if not locations or not builders:
-    raise Exception("❌ Seed location and builder first")
-
-# =========================
-# 🔥 1. PROJECTS (500)
-# =========================
-project_ids = []
-
-project_query = """
-INSERT INTO projects (
-name, brief, approved_by, amenities, signification, connectivity,
-project_status, launch_date, status, website_address, logo_name,
-pdf_upload, project_description, rera_no, no_of_tower, site_address,
-sale_address, offer, landmark, overlooking, possession_date,
-flat_configuration, project_segment, type, ticket_size, total_area,
-structure, location_id, builder_id, work_stage_id, total_unit,
-unit_to_be_sold, concern_person, concern_no, mobile_view_expiry,
-google_map, google_link, created_on, modified_on, header_image,
-footer_image, whatsapp_brief, latlong, whatsapp_top,
-whatsapp_middle, whatsapp_bottom, tc, package_id,
-api_show_price, bd, rank, description_app,
-signification_app, show_carpet, builder_commit_date
-)
-VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-"""
-
-for i in range(1, 501):
-
-    loc_id, loc_name, loc_lat, loc_lng = random.choice(locations)
-    builder_id = random.choice(builders)
-
-    name = f"{loc_name} {random.choice(project_suffix)} {i}"
-
-    data = (
-        name,
-        f"{name} offers modern living",
-        "BMC Approved",
-        random.choice(amenities_list),
-        "Great investment opportunity",
-        "Close to metro and highways",
-        random.choice(["Under Construction", "Ready To Move"]),
-        rand_date(-1500, -500),
-        1,
-        "https://example.com",
-        "logo.png",
-        "brochure.pdf",
-        "Detailed description of project",
-        f"RERA{10000+i}",
-        str(random.randint(1, 10)),
-        f"{loc_name}, Mumbai",
-        f"{loc_name} Sales Office",
-        "Limited time offer",
-        f"Near {loc_name} Station",
-        random.choice(["Garden View", "City View"]),
-        rand_date(200, 1500),
-        "1 BHK,2 BHK,3 BHK",
-        str(random.randint(1, 3)),
-        str(random.randint(1, 5)),
-        str(random.randint(1, 5)),
-        f"{random.randint(1,10)} Acres",
-        "RCC",
-        loc_id,
-        builder_id,
-        1,
-        random.randint(100, 5000),
-        random.randint(0, 1000),
-        f"Agent {i}",
-        rand_phone(),
-        rand_date(100, 500),
-        f"https://www.google.com/maps/search/?api=1&query={loc_lat:.6f},{loc_lng:.6f}",
-        f"https://www.google.com/maps/search/?api=1&query={loc_lat:.6f},{loc_lng:.6f}",
-        datetime.now(),
-        datetime.now(),
-        "header.jpg",
-        "footer.jpg",
-        "Whatsapp summary",
-        f"{loc_lat:.6f},{loc_lng:.6f}",
-        "Top msg",
-        "Middle msg",
-        "Bottom msg",
-        "Terms",
-        1,
-        1,
-        random.randint(1, 10),
-        random.randint(1, 3),
-        "App desc",
-        "App signification",
-        1,
-        rand_date(300, 1500)
+def is_within_mumbai(lat: float, lng: float) -> bool:
+    return (
+        MUMBAI_BOUNDS["min_lat"] <= lat <= MUMBAI_BOUNDS["max_lat"]
+        and MUMBAI_BOUNDS["min_lng"] <= lng <= MUMBAI_BOUNDS["max_lng"]
     )
 
-    cursor.execute(project_query, data)
-    project_ids.append(cursor.lastrowid)
 
-conn.commit()
-print("✅ Projects inserted")
+def clamp_to_mumbai(lat: float, lng: float) -> Tuple[float, float]:
+    bounded_lat = max(MUMBAI_BOUNDS["min_lat"], min(MUMBAI_BOUNDS["max_lat"], lat))
+    bounded_lng = max(MUMBAI_BOUNDS["min_lng"], min(MUMBAI_BOUNDS["max_lng"], lng))
+    return bounded_lat, bounded_lng
 
-# =========================
-# 🔥 2. FLATS (3000)
-# =========================
 
-flat_query = """
-INSERT INTO flat (
-type, projects_id, bathroom_count, balconies,
-transaction_type, base_price, total_charge,
-carpet_area, status, created_on
-)
-VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-"""
+def add_jitter(base_lat: float, base_lng: float, lat_jitter: float, lng_jitter: float) -> Tuple[float, float]:
+    lat = base_lat + random.uniform(-lat_jitter, lat_jitter)
+    lng = base_lng + random.uniform(-lng_jitter, lng_jitter)
+    return clamp_to_mumbai(lat, lng)
 
-for i in range(3000):
-    project_id = random.choice(project_ids)
 
-    bhk = random.choice(["1 BHK", "2 BHK", "3 BHK"])
-    is_rent = random.random() < 0.5
+def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    earth_radius_km = 6371.0
+    d_lat = math.radians(lat2 - lat1)
+    d_lng = math.radians(lng2 - lng1)
 
-    if is_rent:
-        price = random.randint(15000, 80000)
-    else:
-        price = random.randint(5000000, 20000000)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lng / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return earth_radius_km * c
 
-    cursor.execute(flat_query, (
-        bhk,
-        project_id,
-        str(random.randint(1, 3)),
-        random.randint(0, 3),
-        "rent" if is_rent else "sale",
-        price,
-        price + random.randint(50000, 200000),
-        str(random.randint(300, 1200)),
-        1,
-        datetime.now()
-    ))
 
-conn.commit()
-print("✅ Flats inserted")
+def nearest_station_by_coords(lat: float, lng: float) -> Tuple[Dict[str, object], float]:
+    nearest = STATIONS[0]
+    best_distance = float("inf")
 
-# =========================
-# 🔥 3. LOCATION ALIASES (150)
-# =========================
+    for station in STATIONS:
+        distance = haversine_km(lat, lng, float(station["lat"]), float(station["lng"]))
+        if distance < best_distance:
+            best_distance = distance
+            nearest = station
 
-alias_query = """
-INSERT INTO location_aliases (alias, location_id)
-VALUES (%s,%s)
-"""
+    return nearest, best_distance
 
-for loc_id, loc_name in locations:
-    for suffix in ["east", "west", "near metro", "station", "area"]:
-        cursor.execute(alias_query, (f"{loc_name.lower()} {suffix}", loc_id))
 
-conn.commit()
-print("✅ Aliases inserted")
+def build_station_lookup() -> Dict[str, Dict[str, object]]:
+    lookup: Dict[str, Dict[str, object]] = {}
+    for station in STATIONS:
+        lookup[normalize_text(str(station["name"]))] = station
+    return lookup
 
-# =========================
-# DONE
-# =========================
-cursor.close()
-conn.close()
 
-print("🚀 FULL DATA GENERATED SUCCESSFULLY")
+def station_from_hints(
+    location_name: str,
+    aliases: List[str],
+    station_lookup: Dict[str, Dict[str, object]],
+) -> Optional[Dict[str, object]]:
+    text_blob = normalize_text(" ".join([location_name] + aliases))
+    if not text_blob:
+        return None
+
+    for location_key, station_candidates in LOCATION_STATION_HINTS.items():
+        if location_key in text_blob:
+            for station_name in station_candidates:
+                station = station_lookup.get(normalize_text(station_name))
+                if station is not None:
+                    return station
+
+    for station_key, station in station_lookup.items():
+        if station_key and station_key in text_blob:
+            return station
+
+    return None
+
+
+def pick_station_for_location(
+    location_name: str,
+    aliases: List[str],
+    current_lat: Optional[float],
+    current_lng: Optional[float],
+    station_lookup: Dict[str, Dict[str, object]],
+) -> Dict[str, object]:
+    if current_lat is not None and current_lng is not None and is_within_mumbai(current_lat, current_lng):
+        nearest, _ = nearest_station_by_coords(current_lat, current_lng)
+        return nearest
+
+    hinted_station = station_from_hints(location_name, aliases, station_lookup)
+    if hinted_station is not None:
+        return hinted_station
+
+    fallback_station, _ = nearest_station_by_coords(MUMBAI_CENTROID[0], MUMBAI_CENTROID[1])
+    return fallback_station
+
+
+def fetch_alias_map(cursor) -> Dict[int, List[str]]:
+    alias_map: Dict[int, List[str]] = defaultdict(list)
+    cursor.execute("SELECT location_id, alias FROM location_aliases")
+    for location_id, alias in cursor.fetchall():
+        if location_id is None or alias is None:
+            continue
+        alias_map[int(location_id)].append(str(alias))
+    return alias_map
+
+
+def update_location_coordinates(cursor, alias_map: Dict[int, List[str]]) -> Dict[int, Tuple[float, float]]:
+    cursor.execute("SELECT id, name, latitude, longitude FROM location WHERE status = 1")
+    locations = cursor.fetchall()
+    if not locations:
+        raise RuntimeError("No active locations found")
+
+    station_lookup = build_station_lookup()
+    location_coordinates: Dict[int, Tuple[float, float]] = {}
+
+    print(f"Updating coordinates for {len(locations)} active locations")
+
+    for location_id, location_name, latitude, longitude in locations:
+        loc_id = int(location_id)
+        loc_name = str(location_name or "").strip()
+
+        current_lat = parse_float(latitude)
+        current_lng = parse_float(longitude)
+
+        station = pick_station_for_location(
+            location_name=loc_name,
+            aliases=alias_map.get(loc_id, []),
+            current_lat=current_lat,
+            current_lng=current_lng,
+            station_lookup=station_lookup,
+        )
+
+        seeded_lat, seeded_lng = add_jitter(
+            float(station["lat"]),
+            float(station["lng"]),
+            LATITUDE_JITTER,
+            LONGITUDE_JITTER,
+        )
+        seeded_lat = round(seeded_lat, 6)
+        seeded_lng = round(seeded_lng, 6)
+
+        cursor.execute(
+            "UPDATE location SET latitude = %s, longitude = %s WHERE id = %s",
+            (seeded_lat, seeded_lng, loc_id),
+        )
+
+        location_coordinates[loc_id] = (seeded_lat, seeded_lng)
+
+        distance_to_station = haversine_km(
+            seeded_lat,
+            seeded_lng,
+            float(station["lat"]),
+            float(station["lng"]),
+        )
+
+        print(
+            f"Location '{loc_name}' -> {station['name']} ({station['line']})"
+            f" | lat={seeded_lat:.6f}, lng={seeded_lng:.6f},"
+            f" offset={distance_to_station:.2f} km"
+        )
+
+    return location_coordinates
+
+
+def update_project_coordinates(cursor, location_coordinates: Dict[int, Tuple[float, float]]) -> int:
+    cursor.execute("SELECT id, location_id FROM projects WHERE status = 1")
+    projects = cursor.fetchall()
+
+    updates: List[Tuple[str, str, str, int]] = []
+
+    for project_id, location_id in projects:
+        if location_id is None:
+            continue
+
+        location_pair = location_coordinates.get(int(location_id))
+        if location_pair is None:
+            continue
+
+        base_lat, base_lng = location_pair
+        project_lat, project_lng = add_jitter(
+            base_lat,
+            base_lng,
+            PROJECT_LATITUDE_JITTER,
+            PROJECT_LONGITUDE_JITTER,
+        )
+
+        latlong = f"{project_lat:.6f},{project_lng:.6f}"
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={project_lat:.6f},{project_lng:.6f}"
+
+        updates.append((latlong, maps_url, maps_url, int(project_id)))
+
+    if updates:
+        cursor.executemany(
+            "UPDATE projects SET latlong = %s, google_map = %s, google_link = %s WHERE id = %s",
+            updates,
+        )
+
+    return len(updates)
+
+
+def main() -> None:
+    random.seed()
+
+    connection = mysql.connector.connect(**DB_CONFIG)
+    cursor = connection.cursor()
+
+    try:
+        alias_map = fetch_alias_map(cursor)
+        location_coordinates = update_location_coordinates(cursor, alias_map)
+        updated_projects = update_project_coordinates(cursor, location_coordinates)
+
+        connection.commit()
+
+        print("Done")
+        print(f"Locations updated: {len(location_coordinates)}")
+        print(f"Projects updated: {updated_projects}")
+        print("All coordinates seeded from Mumbai station data with +/-0.01 jitter")
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
+
+
+if __name__ == "__main__":
+    main()
