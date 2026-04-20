@@ -159,6 +159,12 @@ document.addEventListener('DOMContentLoaded', async function onPropertyReady() {
 	}
 
 	let currentProject = null;
+	refreshFavoritesFromServer().then(function onFavoritesHydrated() {
+		updateFavoritesNavBadge();
+		if (currentProject && favoriteBtn) {
+			setFavoriteButtonState(favoriteBtn, currentProject.project_id);
+		}
+	});
 
 	function bindFavoriteButton(project) {
 		if (!favoriteBtn || !project || !project.project_id) {

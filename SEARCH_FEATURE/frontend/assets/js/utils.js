@@ -106,6 +106,36 @@ function debounce(func, wait) {
 }
 
 const FAVORITES_STORAGE_KEY = 'propsearch_favorites';
+const FAVORITES_SESSION_KEY = 'propsearch_favorites_session_id';
+const FAVORITES_ENDPOINT = 'http://localhost/Internship/SEARCH_FEATURE/endpoints/favorites.php';
+
+let fallbackFavoritesSessionId = null;
+
+function getFavoritesSessionId() {
+	if (fallbackFavoritesSessionId) {
+		return fallbackFavoritesSessionId;
+	}
+
+	try {
+		const existing = localStorage.getItem(FAVORITES_SESSION_KEY);
+		if (existing && existing.trim() !== '') {
+			fallbackFavoritesSessionId = existing;
+			return existing;
+		}
+
+		const generated = (window.crypto && typeof window.crypto.randomUUID === 'function')
+			? window.crypto.randomUUID()
+			: 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
+
+		localStorage.setItem(FAVORITES_SESSION_KEY, generated);
+		fallbackFavoritesSessionId = generated;
+		return generated;
+	} catch (error) {
+		console.error('Failed to initialize favorites session id:', error);
+		fallbackFavoritesSessionId = 'sess_fallback_' + Math.random().toString(36).slice(2);
+		return fallbackFavoritesSessionId;
+	}
+}
 
 function getFavorites() {
 	try {
@@ -128,9 +158,105 @@ function getFavorites() {
 
 function saveFavorites(favorites) {
 	try {
-		localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites));
+		const normalizedFavorites = Array.isArray(favorites) ? favorites : [];
+		localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(normalizedFavorites));
 	} catch (error) {
 		console.error('Failed to save favorites:', error);
+	}
+}
+
+function buildFavoritesListUrl() {
+	const url = new URL(FAVORITES_ENDPOINT);
+	url.searchParams.set('action', 'list');
+	url.searchParams.set('session_id', getFavoritesSessionId());
+	url.searchParams.set('page', '1');
+	url.searchParams.set('limit', '50');
+	return url.toString();
+}
+
+function buildFavoritesActionUrl(action) {
+	const url = new URL(FAVORITES_ENDPOINT);
+	url.searchParams.set('action', action);
+	url.searchParams.set('session_id', getFavoritesSessionId());
+	return url.toString();
+}
+
+async function requestFavoritesListFromServer() {
+	const response = await fetch(buildFavoritesListUrl(), {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json'
+		}
+	});
+
+	let payload = null;
+	try {
+		payload = await response.json();
+	} catch (error) {
+		throw new Error('Could not parse favorites list response');
+	}
+
+	if (!response.ok || !payload || payload.status !== 'success') {
+		const message = payload && payload.message ? String(payload.message) : ('Favorites list request failed with status ' + response.status);
+		throw new Error(message);
+	}
+
+	return payload;
+}
+
+async function sendFavoritesMutation(action, mutationPayload) {
+	const body = {
+		action: action,
+		session_id: getFavoritesSessionId(),
+	};
+
+	if (mutationPayload && typeof mutationPayload === 'object') {
+		Object.keys(mutationPayload).forEach(function appendField(key) {
+			const value = mutationPayload[key];
+			if (value !== undefined) {
+				body[key] = value;
+			}
+		});
+	}
+
+	const response = await fetch(FAVORITES_ENDPOINT, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify(body)
+	});
+
+	let payload = null;
+	try {
+		payload = await response.json();
+	} catch (error) {
+		throw new Error('Could not parse favorites mutation response');
+	}
+
+	if (!response.ok || !payload || payload.status !== 'success') {
+		const message = payload && payload.message ? String(payload.message) : ('Favorites mutation failed with status ' + response.status);
+		throw new Error(message);
+	}
+
+	return payload;
+}
+
+function syncFavoritesMutationInBackground(action, mutationPayload) {
+	sendFavoritesMutation(action, mutationPayload).catch(function onSyncError(error) {
+		console.error('Favorites sync failed for action ' + action + ':', error);
+	});
+}
+
+async function refreshFavoritesFromServer() {
+	try {
+		const payload = await requestFavoritesListFromServer();
+		const serverFavorites = payload && Array.isArray(payload.data) ? payload.data : [];
+		saveFavorites(serverFavorites);
+		return serverFavorites;
+	} catch (error) {
+		console.error('Failed to refresh favorites from server:', error);
+		return getFavorites();
 	}
 }
 
@@ -159,12 +285,58 @@ function upsertFavorite(project) {
 	if (existingIndex >= 0) {
 		favorites.splice(existingIndex, 1);
 		saveFavorites(favorites);
+		syncFavoritesMutationInBackground('remove', {
+			project_id: id,
+		});
 		return false;
 	}
 
 	favorites.unshift(project);
 	saveFavorites(favorites);
+	syncFavoritesMutationInBackground('add', {
+		project_id: id,
+		flat_type: project.flat_type || null,
+	});
 	return true;
+}
+
+function removeFavoriteByProjectId(projectId) {
+	const id = Number(projectId);
+	if (!Number.isFinite(id) || id <= 0) {
+		return false;
+	}
+
+	const favorites = getFavorites();
+	const nextFavorites = favorites.filter(function keep(item) {
+		return Number(item.project_id) !== id;
+	});
+
+	if (nextFavorites.length === favorites.length) {
+		return false;
+	}
+
+	saveFavorites(nextFavorites);
+	syncFavoritesMutationInBackground('remove', {
+		project_id: id,
+	});
+	return true;
+}
+
+function clearFavorites() {
+	const favorites = getFavorites();
+	if (favorites.length === 0) {
+		return;
+	}
+
+	saveFavorites([]);
+	favorites.forEach(function removeItem(item) {
+		const id = Number(item && item.project_id);
+		if (Number.isFinite(id) && id > 0) {
+			syncFavoritesMutationInBackground('remove', {
+				project_id: id,
+			});
+		}
+	});
 }
 
 function updateFavoritesNavBadge() {

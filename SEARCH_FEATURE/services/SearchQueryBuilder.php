@@ -12,7 +12,7 @@ final class SearchQueryBuilder
 
 	public function build(
 		array $parsed,
-		?int $locationId = null,
+		array $locationIds = [],
 		int $page = 1,
 		int $limit = 20,
 		?float $geoLat = null,
@@ -102,22 +102,33 @@ final class SearchQueryBuilder
 		}
 
 		$rawLocation = self::normalizeNullableString($parsed['raw_location'] ?? null);
+		$safeLocationIds = array_values(array_unique(array_filter(array_map(static fn($id) => (int) $id, $locationIds), static fn(int $id): bool => $id > 0)));
 
-		if ($locationId !== null) {
-			$whereConditions[] = 'p.location_id = ?';
-			$whereParams[] = $locationId;
-			$countParams[] = $locationId;
+		if ($safeLocationIds !== []) {
+			if (count($safeLocationIds) === 1) {
+				$whereConditions[] = 'p.location_id = ?';
+				$whereParams[] = $safeLocationIds[0];
+				$countParams[] = $safeLocationIds[0];
+			} else {
+				$placeholders = implode(',', array_fill(0, count($safeLocationIds), '?'));
+				$whereConditions[] = "p.location_id IN ($placeholders)";
+				foreach ($safeLocationIds as $resolvedLocationId) {
+					$whereParams[] = $resolvedLocationId;
+					$countParams[] = $resolvedLocationId;
+				}
+			}
 		} elseif ($rawLocation !== null) {
 			$usedFulltext = true;
+			$locationBooleanQuery = self::buildRequiredBooleanQuery($rawLocation);
 			$matchExpression = 'MATCH(p.name, p.site_address, p.landmark, p.amenities, p.flat_configuration) AGAINST(? IN BOOLEAN MODE)';
 
 			// First placeholder belongs to SELECT relevance_score.
 			$selectFields[] = $matchExpression . ' AS relevance_score';
-			$selectParams[] = $rawLocation;
+			$selectParams[] = $locationBooleanQuery;
 
 			$whereConditions[] = $matchExpression;
-			$whereParams[] = $rawLocation;
-			$countParams[] = $rawLocation;
+			$whereParams[] = $locationBooleanQuery;
+			$countParams[] = $locationBooleanQuery;
 		}
 
 		$bhk = self::normalizeNullableString($parsed['bhk'] ?? null);
@@ -221,5 +232,30 @@ final class SearchQueryBuilder
 		}
 
 		return (int) $value;
+	}
+
+	private static function buildRequiredBooleanQuery(string $input): string
+	{
+		$tokens = preg_split('/\s+/', strtolower($input)) ?: [];
+		$requiredTerms = [];
+
+		foreach ($tokens as $token) {
+			$clean = preg_replace('/[^a-z0-9]/', '', $token) ?? '';
+			if ($clean === '' || strlen($clean) < 2) {
+				continue;
+			}
+
+			if (in_array($clean, ['in', 'at', 'on', 'of', 'the', 'to', 'for', 'near'], true)) {
+				continue;
+			}
+
+			$requiredTerms[$clean] = true;
+		}
+
+		if ($requiredTerms === []) {
+			return $input;
+		}
+
+		return implode(' ', array_map(static fn(string $term): string => '+' . $term, array_keys($requiredTerms)));
 	}
 }

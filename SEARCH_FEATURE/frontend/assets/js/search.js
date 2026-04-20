@@ -823,6 +823,12 @@ function bindResultGridActions() {
 
 document.addEventListener('DOMContentLoaded', function onReady() {
 	updateFavoritesNavBadge();
+	refreshFavoritesFromServer().then(function onFavoritesHydrated() {
+		updateFavoritesNavBadge();
+		if (state.currentResults.length > 0) {
+			renderProjectGrid();
+		}
+	});
 
 	const {
 		searchInput,

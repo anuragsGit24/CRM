@@ -489,6 +489,7 @@ def build_station_rows() -> Tuple[List[StationRow], List[GraphRow]]:
 def generate_location_updates(
     connection,
     station_rows: Sequence[StationRow],
+    location_mode: str = "nearest",
 ) -> List[str]:
     cursor = connection.cursor()
     cursor.execute("SELECT id, name, latitude, longitude FROM location WHERE status = 1 ORDER BY id ASC")
@@ -537,6 +538,7 @@ def generate_location_updates(
         return StationContext(station=station, previous=previous, next=next_station)
 
     update_sql.append("-- Location to station mapping with neighboring stations (previous/next)")
+    update_sql.append(f"-- Mapping mode: {location_mode} (nearest = strict Haversine closest station)")
 
     for location_id, location_name, lat_raw, lon_raw in locations:
         if lat_raw is None or lon_raw is None:
@@ -548,7 +550,10 @@ def generate_location_updates(
         except (TypeError, ValueError):
             continue
 
-        nearest_station = resolve_preferred_station(str(location_name), loc_lat, loc_lon)
+        if location_mode == "semantic":
+            nearest_station = resolve_preferred_station(str(location_name), loc_lat, loc_lon)
+        else:
+            nearest_station = nearest_any_station(loc_lat, loc_lon)
         distance = haversine_km(loc_lat, loc_lon, nearest_station.latitude, nearest_station.longitude)
         context = build_station_context(nearest_station)
 
@@ -692,13 +697,19 @@ def main() -> None:
         action="store_true",
         help="Apply generated SQL directly to DB",
     )
+    parser.add_argument(
+        "--location-mode",
+        choices=["nearest", "semantic"],
+        default="nearest",
+        help="How location.nearest_station_id is chosen: nearest (strict distance) or semantic (name-aware)",
+    )
     args = parser.parse_args()
 
     station_rows, graph_rows = build_station_rows()
 
     connection = mysql.connector.connect(**DB_CONFIG)
     try:
-        location_updates = generate_location_updates(connection, station_rows)
+        location_updates = generate_location_updates(connection, station_rows, args.location_mode)
         sql_text = build_sql(station_rows, graph_rows, location_updates)
 
         output_path = Path(args.output)
@@ -711,6 +722,7 @@ def main() -> None:
         print(f"Stations rows: {len(station_rows)}")
         print(f"Station graph rows: {len(graph_rows)}")
         print(f"Location updates: {len(location_updates) // 2}")
+        print(f"Location mode: {args.location_mode}")
         print(f"SQL written to: {output_path}")
         print(f"Applied to DB: {'yes' if args.apply else 'no'}")
     finally:

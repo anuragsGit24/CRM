@@ -21,6 +21,7 @@ require_once $baseDir . '/services/QueryParser.php';
 require_once $baseDir . '/services/LocationResolver.php';
 require_once $baseDir . '/services/SearchQueryBuilder.php';
 require_once $baseDir . '/services/SearchLogger.php';
+require_once $baseDir . '/services/GeoSearchService.php';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 	Response::error('Method not allowed', 405);
@@ -61,8 +62,8 @@ try {
 		return $coordinate;
 	};
 
-	$geoLat = $sanitizeCoordinate($body['geo_lat'] ?? null, -90.0, 90.0);
-	$geoLng = $sanitizeCoordinate($body['geo_lng'] ?? null, -180.0, 180.0);
+	$geoLat = $sanitizeCoordinate($body['geo_lat'] ?? ($body['lat'] ?? null), -90.0, 90.0);
+	$geoLng = $sanitizeCoordinate($body['geo_lng'] ?? ($body['lng'] ?? null), -180.0, 180.0);
 
 	if ($query === '') {
 		$featuredLimit = 20;
@@ -131,7 +132,7 @@ try {
 	$parsed = array_merge($defaultParsed, QueryParser::parse($query));
 	if (($parsed['geo_intent'] ?? false) === true) {
 		// Keep non-geo filters from the same query, e.g. "2 bhk near me".
-		$queryWithoutGeoIntent = preg_replace('/\b(?:near\s+me|nearby|close\s+to\s+me|around\s+me)\b/i', ' ', $query) ?? $query;
+		$queryWithoutGeoIntent = preg_replace('/\b(?:near\s+me|near\s*by|nearby|close\s+to\s+me|around\s+me)\b/i', ' ', $query) ?? $query;
 		$queryWithoutGeoIntent = trim((string) (preg_replace('/\s+/', ' ', $queryWithoutGeoIntent) ?? $queryWithoutGeoIntent));
 
 		if ($queryWithoutGeoIntent !== '') {
@@ -144,21 +145,101 @@ try {
 		}
 
 		if ($geoLat === null || $geoLng === null) {
-			Response::error('Please enable location and send geo_lat and geo_lng for near me search', 400);
+			Response::error('Location coordinates required for near me search', 400);
 		}
+
+		$additionalFilters = [];
+		foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $filterKey) {
+			if ($parsed[$filterKey] !== null) {
+				$additionalFilters[$filterKey] = $parsed[$filterKey];
+			}
+		}
+
+		$geoService = new GeoSearchService($pdo);
+		$geoResult = $geoService->searchNearMe($geoLat, $geoLng, $additionalFilters, $page, $limit);
+
+		$queryInterpreted = [
+			'geo' => true,
+			'geo_lat' => $geoLat,
+			'geo_lng' => $geoLng,
+		];
+
+		foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $key) {
+			if ($parsed[$key] !== null) {
+				$queryInterpreted[$key] = $parsed[$key];
+			}
+		}
+
+		$results = isset($geoResult['results']) && is_array($geoResult['results']) ? $geoResult['results'] : [];
+		$paginationPayload = isset($geoResult['pagination']) && is_array($geoResult['pagination'])
+			? $geoResult['pagination']
+			: [
+				'current_page' => $page,
+				'per_page' => $limit,
+				'total_count' => 0,
+				'total_pages' => 0,
+			];
+
+		$parsedForLog = $parsed;
+		$parsedForLog['search_type'] = 'geo';
+		$parsedForLog['nearest_station'] = $geoResult['nearest_station'] ?? null;
+		$parsedForLog['stations_searched'] = $geoResult['stations_searched'] ?? [];
+		$parsedForLog['radius_used_km'] = $geoResult['radius_used_km'] ?? null;
+		$parsedForLog['fallback_used'] = $geoResult['fallback_used'] ?? false;
+
+		try {
+			$logger = new SearchLogger($pdo);
+			$logger->log(
+				$query,
+				$parsedForLog,
+				(int) ($geoResult['total_count'] ?? 0),
+				$platform,
+				$userId,
+				$geoLat,
+				$geoLng
+			);
+		} catch (Throwable $logException) {
+			error_log('Search logger wrapper failed: ' . $logException->getMessage());
+		}
+
+		Response::success(
+			$results,
+			$queryInterpreted,
+			false,
+			$paginationPayload,
+			200,
+			[
+				'search_type' => 'geo',
+				'nearest_station' => (string) ($geoResult['nearest_station'] ?? ''),
+				'station_distance_km' => (float) ($geoResult['station_distance_km'] ?? 0.0),
+				'stations_searched' => isset($geoResult['stations_searched']) && is_array($geoResult['stations_searched']) ? $geoResult['stations_searched'] : [],
+				'radius_used_km' => (float) ($geoResult['radius_used_km'] ?? 7.0),
+				'fallback_used' => (bool) ($geoResult['fallback_used'] ?? false),
+			]
+		);
 	}
 
-	$locationId = null;
+	$locationIds = [];
+	$originalRawLocation = null;
+	$isBroadCityLocation = false;
+
 	if ($parsed['raw_location'] !== null) {
 		$resolver = new LocationResolver($pdo);
-		$locationId = $resolver->resolve((string) $parsed['raw_location']);
+		$originalRawLocation = (string) $parsed['raw_location'];
+		$isBroadCityLocation = $resolver->isBroadCityQuery($originalRawLocation);
+		$locationIds = $resolver->resolveIds($originalRawLocation);
+
+		if ($locationIds === [] && $isBroadCityLocation) {
+			// City-level intents like "mumbai" should not collapse to a single locality.
+			$parsed['raw_location'] = null;
+		}
 	}
 
 	$geoSearchLat = (($parsed['geo_intent'] ?? false) === true) ? $geoLat : null;
 	$geoSearchLng = (($parsed['geo_intent'] ?? false) === true) ? $geoLng : null;
 
 	$builder = new SearchQueryBuilder($pdo);
-	$built = $builder->build($parsed, $locationId, $page, $limit, $geoSearchLat, $geoSearchLng);
+	$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng);
 
 	$runCount = static function (PDO $pdo, array $builtQuery): int {
 		$countStmt = $pdo->prepare($builtQuery['count_sql']);
@@ -171,13 +252,13 @@ try {
 
 	if ($totalCount === 0) {
 		$parsed['max_budget'] = null;
-		$built = $builder->build($parsed, $locationId, $page, $limit, $geoSearchLat, $geoSearchLng);
+		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng);
 		$totalCount = $runCount($pdo, $built);
 	}
 
 	if ($totalCount === 0) {
 		$parsed['bhk'] = null;
-		$built = $builder->build($parsed, $locationId, $page, $limit, $geoSearchLat, $geoSearchLng);
+		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng);
 		$totalCount = $runCount($pdo, $built);
 		$isRelaxed = true;
 	}
@@ -206,14 +287,22 @@ try {
 		$queryInterpreted['geo_lng'] = $geoSearchLng;
 	}
 
-	if ($locationId !== null) {
-		$locationStmt = $pdo->prepare('SELECT name FROM location WHERE id = ? AND status = 1 LIMIT 1');
-		$locationStmt->execute([$locationId]);
-		$locationName = $locationStmt->fetchColumn();
+	if ($locationIds !== []) {
+		$safeLocationIds = array_values(array_filter(array_map(static fn($id) => (int) $id, $locationIds), static fn(int $id): bool => $id > 0));
+		if ($safeLocationIds !== []) {
+			$placeholders = implode(',', array_fill(0, count($safeLocationIds), '?'));
+			$locationStmt = $pdo->prepare("SELECT name FROM location WHERE status = 1 AND id IN ($placeholders) ORDER BY name ASC");
+			$locationStmt->execute($safeLocationIds);
+			$locationNames = array_values(array_filter(array_map(static fn($name) => trim((string) $name), $locationStmt->fetchAll(PDO::FETCH_COLUMN)), static fn(string $name): bool => $name !== ''));
 
-		if ($locationName !== false) {
-			$queryInterpreted['location'] = (string) $locationName;
+			if ($locationNames !== []) {
+				$queryInterpreted['location'] = count($locationNames) === 1
+					? $locationNames[0]
+					: implode(', ', $locationNames);
+			}
 		}
+	} elseif ($isBroadCityLocation && $originalRawLocation !== null) {
+		$queryInterpreted['location'] = $originalRawLocation;
 	} elseif ($parsed['raw_location'] !== null) {
 		$queryInterpreted['location'] = (string) $parsed['raw_location'];
 	}

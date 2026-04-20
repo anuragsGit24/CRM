@@ -79,10 +79,7 @@ function renderFavoritesPage() {
 	grid.querySelectorAll('.remove-favorite-btn').forEach(function bindRemove(button) {
 		button.addEventListener('click', function onRemove() {
 			const projectId = Number(button.getAttribute('data-project-id') || 0);
-			const nextFavorites = getFavorites().filter(function keep(item) {
-				return Number(item.project_id) !== projectId;
-			});
-			saveFavorites(nextFavorites);
+			removeFavoriteByProjectId(projectId);
 			updateFavoritesNavBadge();
 			renderFavoritesPage();
 		});
@@ -91,14 +88,19 @@ function renderFavoritesPage() {
 
 document.addEventListener('DOMContentLoaded', function onFavoritesReady() {
 	updateFavoritesNavBadge();
+	renderFavoritesPage();
+
+	refreshFavoritesFromServer().then(function onFavoritesHydrated() {
+		updateFavoritesNavBadge();
+		renderFavoritesPage();
+	});
+
 	const clearBtn = document.getElementById('clear-favorites-btn');
 	if (clearBtn) {
 		clearBtn.addEventListener('click', function onClearAll() {
-			saveFavorites([]);
+			clearFavorites();
 			updateFavoritesNavBadge();
 			renderFavoritesPage();
 		});
 	}
-
-	renderFavoritesPage();
 });

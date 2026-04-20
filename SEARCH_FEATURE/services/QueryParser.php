@@ -13,7 +13,7 @@ final class QueryParser
 		}
 
 		// GPS intent must be checked first and short-circuit the parse.
-		if (preg_match('/\b(?:near\s+me|nearby|close\s+to\s+me|around\s+me)\b/i', $working) === 1) {
+		if (preg_match('/\b(?:near\s+me|near\s*by|nearby|close\s+to\s+me|around\s+me)\b/i', $working) === 1) {
 			return [
 				'geo_intent' => true,
 			];

@@ -12,18 +12,22 @@ final class Response
 		array $queryInterpreted = [],
 		bool $isRelaxed = false,
 		array $pagination = [],
-		int $httpStatusCode = 200
+		int $httpStatusCode = 200,
+		array $extra = []
 	): void {
-		self::sendJson(
-			[
-				'status' => 'success',
-				'query_interpreted' => $queryInterpreted,
-				'is_relaxed' => $isRelaxed,
-				'pagination' => $pagination,
-				'data' => $data,
-			],
-			$httpStatusCode
-		);
+		$payload = [
+			'status' => 'success',
+			'query_interpreted' => $queryInterpreted,
+			'is_relaxed' => $isRelaxed,
+			'pagination' => $pagination,
+			'data' => $data,
+		];
+
+		if ($extra !== []) {
+			$payload = array_merge($payload, $extra);
+		}
+
+		self::sendJson($payload, $httpStatusCode);
 	}
 
 	public static function error(string $message, int $httpStatusCode = 400): void
