@@ -53,6 +53,53 @@ if (!defined('BUDGET_MULTIPLIERS')) {
 	]);
 }
 
+if (!defined('PROPERTY_TYPE_MAP')) {
+	define('PROPERTY_TYPE_MAP', [
+		'flat' => 1,
+		'apartment' => 1,
+		'office' => 2,
+		'office space' => 2,
+		'commercial' => 2,
+		'shop' => 3,
+		'retail' => 3,
+	]);
+}
+
+if (!defined('AMENITY_ALIASES')) {
+	define('AMENITY_ALIASES', [
+		'gym' => 'Gym',
+		'fitness' => 'Gym',
+		'pool' => 'Swimming Pool',
+		'swimming' => 'Swimming Pool',
+		'swimming pool' => 'Swimming Pool',
+		'club' => 'Club House',
+		'clubhouse' => 'Club House',
+		'club house' => 'Club House',
+		'parking' => 'Car Parking',
+		'garden' => 'Landscape Garden',
+		'landscape' => 'Landscape Garden',
+		'jogging' => 'Jogging Track',
+		'jogging track' => 'Jogging Track',
+		'play area' => 'Children Play Area',
+		'children' => 'Children Play Area',
+		'yoga' => 'Yoga & Meditation Area',
+		'meditation' => 'Yoga & Meditation Area',
+		'gazebo' => 'Gazebo',
+		'party' => 'Party Lawn',
+		'party lawn' => 'Party Lawn',
+		'senior' => 'Senior Citizen Sit Out',
+		'theatre' => 'Theatre Room',
+		'theater' => 'Theatre Room',
+		'study' => 'Study Zone',
+		'indoor games' => 'Indoor Games',
+		'lobby' => 'Premium Lobby',
+	]);
+}
+
+if (!defined('BUILDER_SEARCH_MIN_LENGTH')) {
+	define('BUILDER_SEARCH_MIN_LENGTH', 3);
+}
+
 if (!defined('DEFAULT_LIMIT')) {
 	define('DEFAULT_LIMIT', 20);
 }

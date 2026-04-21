@@ -19,6 +19,7 @@ require_once $baseDir . '/helpers/Response.php';
 require_once $baseDir . '/helpers/Sanitizer.php';
 require_once $baseDir . '/services/QueryParser.php';
 require_once $baseDir . '/services/LocationResolver.php';
+require_once $baseDir . '/services/BuilderResolver.php';
 require_once $baseDir . '/services/SearchQueryBuilder.php';
 require_once $baseDir . '/services/SearchLogger.php';
 require_once $baseDir . '/services/GeoSearchService.php';
@@ -44,6 +45,29 @@ try {
 	$userIdSanitized = Sanitizer::sanitizeInt($body['user_id'] ?? 0);
 	$userId = $userIdSanitized > 0 ? $userIdSanitized : null;
 
+	$directBuilderIdRaw = Sanitizer::sanitizeInt($body['builder_id'] ?? 0);
+	$directBuilderId = $directBuilderIdRaw > 0 ? $directBuilderIdRaw : null;
+
+	$directPropertyTypeRaw = Sanitizer::sanitizeInt($body['property_type'] ?? 0);
+	$directPropertyType = in_array($directPropertyTypeRaw, [1, 2, 3], true) ? $directPropertyTypeRaw : null;
+
+	$directAmenities = [];
+	if (isset($body['amenities']) && is_array($body['amenities'])) {
+		$uniqueAmenities = [];
+		foreach ($body['amenities'] as $amenity) {
+			$name = trim((string) $amenity);
+			if ($name === '') {
+				continue;
+			}
+
+			$uniqueAmenities[$name] = true;
+		}
+
+		$directAmenities = array_keys($uniqueAmenities);
+	}
+
+	$hasStructuredFilters = $directBuilderId !== null || $directPropertyType !== null || $directAmenities !== [];
+
 	$sanitizeCoordinate = static function (mixed $value, float $min, float $max): ?float {
 		if ($value === null || $value === '') {
 			return null;
@@ -65,7 +89,7 @@ try {
 	$geoLat = $sanitizeCoordinate($body['geo_lat'] ?? ($body['lat'] ?? null), -90.0, 90.0);
 	$geoLng = $sanitizeCoordinate($body['geo_lng'] ?? ($body['lng'] ?? null), -180.0, 180.0);
 
-	if ($query === '') {
+	if ($query === '' && !$hasStructuredFilters) {
 		$featuredLimit = 20;
 
 		$featuredSql = "SELECT
@@ -127,9 +151,71 @@ try {
 		'possession' => null,
 		'raw_location' => null,
 		'geo_intent' => false,
+		'property_type' => null,
+		'amenities' => [],
+		'raw_builder_hint' => null,
+		'builder_name' => null,
 	];
 
 	$parsed = array_merge($defaultParsed, QueryParser::parse($query));
+
+	$builderId = null;
+	$builderResolver = new BuilderResolver($pdo);
+
+	// Prefer resolving builders from the full raw query so names like "Marathon Group"
+	// are recognized even when the parser also sees location words nearby.
+	$builderId = $builderResolver->resolve($query);
+	if ($builderId !== null) {
+		$builderName = $builderResolver->getBuilderName($builderId);
+		if ($builderName !== null) {
+			$parsed['builder_name'] = $builderName;
+		}
+	}
+
+	// Mobile sends structured builder_id directly.
+	if ($directBuilderId !== null) {
+		$builderId = $directBuilderId;
+		$builderName = $builderResolver->getBuilderName($builderId);
+		if ($builderName !== null) {
+			$parsed['builder_name'] = $builderName;
+		}
+	}
+
+	// If a builder is known, remove its words from the raw location so we do not
+	// keep fragments like "group" or "lodha" inside the location string.
+	if ($builderId !== null && $parsed['raw_location'] !== null && !empty($parsed['builder_name'])) {
+		$rawLocationValue = trim((string) $parsed['raw_location']);
+		$builderNameValue = trim((string) $parsed['builder_name']);
+		if ($rawLocationValue !== '' && $builderNameValue !== '') {
+			$builderTokens = preg_split('/\s+/', $builderNameValue) ?: [];
+			foreach ($builderTokens as $token) {
+				$cleanToken = trim($token);
+				if ($cleanToken === '') {
+					continue;
+				}
+
+				$rawLocationValue = preg_replace('/\b' . preg_quote($cleanToken, '/') . '\b/i', ' ', $rawLocationValue, 1) ?? $rawLocationValue;
+			}
+
+			$rawLocationValue = trim((string) (preg_replace('/\s+/', ' ', $rawLocationValue) ?? $rawLocationValue));
+			$rawLocationValue = trim($rawLocationValue, " \\t\\n\\r\\0\\x0B,.");
+			$rawLocationValue = preg_replace('/\b(?:with|and|near|in|at|on|for|to|of|the)\b/i', ' ', $rawLocationValue) ?? $rawLocationValue;
+			$rawLocationValue = trim((string) (preg_replace('/\s+/', ' ', $rawLocationValue) ?? $rawLocationValue));
+
+			$parsed['raw_location'] = $rawLocationValue !== '' ? $rawLocationValue : null;
+		}
+	}
+
+	// Mobile sends property_type directly as int
+	if ($directPropertyType !== null && $parsed['property_type'] === null) {
+		$parsed['property_type'] = $directPropertyType;
+	}
+
+	// Mobile sends amenities directly as array of strings
+	if ($directAmenities !== [] && (!is_array($parsed['amenities']) || $parsed['amenities'] === [])) {
+		$parsed['amenities'] = $directAmenities;
+	}
+
 	if (($parsed['geo_intent'] ?? false) === true) {
 		// Keep non-geo filters from the same query, e.g. "2 bhk near me".
 		$queryWithoutGeoIntent = preg_replace('/\b(?:near\s+me|near\s*by|nearby|close\s+to\s+me|around\s+me)\b/i', ' ', $query) ?? $query;
@@ -137,7 +223,7 @@ try {
 
 		if ($queryWithoutGeoIntent !== '') {
 			$refinedParsed = array_merge($defaultParsed, QueryParser::parse($queryWithoutGeoIntent));
-			foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession', 'raw_location'] as $field) {
+			foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession', 'raw_location', 'property_type', 'amenities', 'raw_builder_hint'] as $field) {
 				if ($refinedParsed[$field] !== null) {
 					$parsed[$field] = $refinedParsed[$field];
 				}
@@ -239,7 +325,8 @@ try {
 	$geoSearchLng = (($parsed['geo_intent'] ?? false) === true) ? $geoLng : null;
 
 	$builder = new SearchQueryBuilder($pdo);
-	$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng);
+	$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng, $builderId);
+	$inferredBuilderId = ($directBuilderId === null && $builderId !== null) ? $builderId : null;
 
 	$runCount = static function (PDO $pdo, array $builtQuery): int {
 		$countStmt = $pdo->prepare($builtQuery['count_sql']);
@@ -250,15 +337,24 @@ try {
 	$totalCount = $runCount($pdo, $built);
 	$isRelaxed = false;
 
+	if ($totalCount === 0 && $inferredBuilderId !== null) {
+		$builderId = null;
+		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng, null);
+		$totalCount = $runCount($pdo, $built);
+		if ($totalCount > 0) {
+			$isRelaxed = true;
+		}
+	}
+
 	if ($totalCount === 0) {
 		$parsed['max_budget'] = null;
-		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng);
+		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng, $builderId);
 		$totalCount = $runCount($pdo, $built);
 	}
 
 	if ($totalCount === 0) {
 		$parsed['bhk'] = null;
-		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng);
+		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng, $builderId);
 		$totalCount = $runCount($pdo, $built);
 		$isRelaxed = true;
 	}
@@ -278,6 +374,28 @@ try {
 	foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $key) {
 		if ($parsed[$key] !== null) {
 			$queryInterpreted[$key] = $parsed[$key];
+		}
+	}
+
+	$builderNameInterpreted = trim((string) ($parsed['builder_name'] ?? ''));
+	if ($builderNameInterpreted !== '') {
+		$queryInterpreted['builder'] = $builderNameInterpreted;
+	}
+
+	$propertyTypeMap = [
+		1 => 'Flat',
+		2 => 'Office Space',
+		3 => 'Shop',
+	];
+	$propertyTypeValue = isset($parsed['property_type']) ? (int) $parsed['property_type'] : 0;
+	if (isset($propertyTypeMap[$propertyTypeValue])) {
+		$queryInterpreted['property_type'] = $propertyTypeMap[$propertyTypeValue];
+	}
+
+	if (is_array($parsed['amenities']) && $parsed['amenities'] !== []) {
+		$amenities = array_values(array_unique(array_filter(array_map(static fn($value) => trim((string) $value), $parsed['amenities']), static fn(string $value): bool => $value !== '')));
+		if ($amenities !== []) {
+			$queryInterpreted['amenities'] = $amenities;
 		}
 	}
 

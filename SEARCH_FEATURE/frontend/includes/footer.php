@@ -1,5 +1,5 @@
 <footer class="border-top py-3 text-center text-muted small bg-white">
-	&copy; 2025 PropSearch. Powered by PHP + MySQL
+	&copy; 2026 PropSearch. Powered by PHP + MySQL
 </footer>
 
 <script

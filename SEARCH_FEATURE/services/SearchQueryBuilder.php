@@ -16,7 +16,8 @@ final class SearchQueryBuilder
 		int $page = 1,
 		int $limit = 20,
 		?float $geoLat = null,
-		?float $geoLng = null
+		?float $geoLng = null,
+		?int $builderId = null
 	): array
 	{
 		$page = $page > 0 ? $page : 1;
@@ -171,6 +172,34 @@ final class SearchQueryBuilder
 			$whereConditions[] = 'p.project_status = ?';
 			$whereParams[] = $possession;
 			$countParams[] = $possession;
+		}
+
+		if ($builderId !== null && $builderId > 0) {
+			$whereConditions[] = 'p.builder_id = ?';
+			$whereParams[] = $builderId;
+			$countParams[] = $builderId;
+		}
+
+		$propertyType = self::normalizeNullableInt($parsed['property_type'] ?? null);
+		if ($propertyType !== null) {
+			$whereConditions[] = 'f.property_type = ?';
+			$whereParams[] = $propertyType;
+			$countParams[] = $propertyType;
+		}
+
+		$amenities = $parsed['amenities'] ?? [];
+		if (is_array($amenities) && $amenities !== []) {
+			foreach ($amenities as $amenity) {
+				$amenityName = self::normalizeNullableString($amenity);
+				if ($amenityName === null) {
+					continue;
+				}
+
+				$whereConditions[] = 'p.amenities LIKE ?';
+				$likeValue = '%' . $amenityName . '%';
+				$whereParams[] = $likeValue;
+				$countParams[] = $likeValue;
+			}
 		}
 
 		$whereClause = 'WHERE ' . implode(' AND ', $whereConditions);
