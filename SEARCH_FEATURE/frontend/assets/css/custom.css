@@ -11,6 +11,45 @@
 	--radius: 12px;
 }
 
+.search-mode-switch {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.12);
+	border: 1px solid rgba(255, 255, 255, 0.25);
+	backdrop-filter: blur(6px);
+}
+
+.search-mode-btn {
+	flex: 1;
+	border: none;
+	border-radius: 999px;
+	padding: 10px 14px;
+	font-size: 13px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	background: transparent;
+	color: rgba(255, 255, 255, 0.78);
+	transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.search-mode-btn:hover {
+	background: rgba(255, 255, 255, 0.18);
+	color: #ffffff;
+}
+
+.search-mode-btn.active {
+	background: #ffffff;
+	color: var(--dark);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+
+.property-card .status-badge.position-static {
+	position: static;
+}
+
 .search-bar-wrapper {
 	position: relative;
 	height: 56px;
@@ -408,4 +447,11 @@
 .favorites-grid .property-card .btn-primary-custom,
 .favorites-grid .property-card .btn-outline-custom {
 	min-height: 44px;
+}
+
+@media (max-width: 576px) {
+	.search-mode-btn {
+		padding: 9px 10px;
+		font-size: 12px;
+	}
 }

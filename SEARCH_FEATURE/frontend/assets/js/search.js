@@ -1,7 +1,26 @@
-const SEARCH_ENDPOINT = 'http://localhost/Internship/SEARCH_FEATURE/endpoints/search.php';
-const SUGGEST_ENDPOINT = 'http://localhost/Internship/SEARCH_FEATURE/endpoints/suggest.php';
+const SEARCH_ENDPOINT = getApiEndpoint('search.php');
+const SUGGEST_ENDPOINT = getApiEndpoint('suggest.php');
+const POST_SEARCH_ENDPOINT = getApiEndpoint('posts/search.php');
+
+const SEARCH_MODE_PROJECTS = 'projects';
+const SEARCH_MODE_POSTS = 'posts';
+const SEARCH_MODE_STORAGE_KEY = 'propsearch_search_mode';
+
+function getInitialSearchMode() {
+	try {
+		const stored = localStorage.getItem(SEARCH_MODE_STORAGE_KEY);
+		if (stored === SEARCH_MODE_POSTS) {
+			return SEARCH_MODE_POSTS;
+		}
+	} catch (error) {
+		console.error('Failed to read search mode preference:', error);
+	}
+
+	return SEARCH_MODE_PROJECTS;
+}
 
 const state = {
+	searchMode: getInitialSearchMode(),
 	currentQuery: '',
 	currentPage: 1,
 	currentLimit: 20,
@@ -41,8 +60,149 @@ function getElements() {
 		emptyState: document.getElementById('empty-state'),
 		clearAllBtn: document.getElementById('clear-all'),
 		clearSearchBtn: document.getElementById('clear-search-btn'),
-		sortSelect: document.getElementById('sort-select')
+		sortSelect: document.getElementById('sort-select'),
+		sortWrapper: document.getElementById('sort-wrapper'),
+		modeProjectsBtn: document.getElementById('search-mode-projects'),
+		modePostsBtn: document.getElementById('search-mode-posts'),
+		modeHint: document.getElementById('search-mode-hint')
 	};
+}
+
+function isPostsSearchMode() {
+	return state.searchMode === SEARCH_MODE_POSTS;
+}
+
+function persistSearchMode(mode) {
+	try {
+		localStorage.setItem(SEARCH_MODE_STORAGE_KEY, mode);
+	} catch (error) {
+		console.error('Failed to persist search mode:', error);
+	}
+}
+
+function syncQuickPillLabels() {
+	document.querySelectorAll('.quick-pill').forEach(function updatePill(button) {
+		const label = isPostsSearchMode()
+			? (button.getAttribute('data-post-label') || button.getAttribute('data-project-label') || '')
+			: (button.getAttribute('data-project-label') || '');
+
+		const textNode = button.querySelector('.quick-pill-text');
+		if (textNode && label) {
+			textNode.textContent = label;
+		}
+	});
+}
+
+function updateSearchModeUI() {
+	const {
+		searchInput,
+		suggestionDropdown,
+		sortWrapper,
+		modeProjectsBtn,
+		modePostsBtn,
+		modeHint
+	} = getElements();
+
+	if (modeProjectsBtn) {
+		modeProjectsBtn.classList.toggle('active', !isPostsSearchMode());
+		modeProjectsBtn.setAttribute('aria-selected', String(!isPostsSearchMode()));
+	}
+
+	if (modePostsBtn) {
+		modePostsBtn.classList.toggle('active', isPostsSearchMode());
+		modePostsBtn.setAttribute('aria-selected', String(isPostsSearchMode()));
+	}
+
+	if (searchInput) {
+		searchInput.placeholder = isPostsSearchMode()
+			? "Try 'seller 2 bhk ghatkopar' or 'office rent andheri under 60k'"
+			: "Try '2 BHK in Powai under 1.5 Cr' or '1 BHK vikhroli rent'";
+	}
+
+	if (modeHint) {
+		modeHint.textContent = isPostsSearchMode()
+			? 'Posting Search: broker buyer/seller leads'
+			: 'Normal Search: projects and flats';
+	}
+
+	if (sortWrapper) {
+		sortWrapper.classList.toggle('d-none', isPostsSearchMode());
+	}
+
+	if (suggestionDropdown && isPostsSearchMode()) {
+		suggestionDropdown.classList.add('d-none');
+	}
+
+	syncQuickPillLabels();
+}
+
+function setSearchMode(mode, resetResults = true) {
+	const normalized = mode === SEARCH_MODE_POSTS ? SEARCH_MODE_POSTS : SEARCH_MODE_PROJECTS;
+	if (state.searchMode === normalized) {
+		updateSearchModeUI();
+		return;
+	}
+
+	state.searchMode = normalized;
+	persistSearchMode(normalized);
+	updateSearchModeUI();
+
+	if (!resetResults) {
+		return;
+	}
+
+	const {
+		resultsGrid,
+		resultsSection,
+		emptyState,
+		paginationWrapper,
+		relaxedBanner,
+		chipsRow,
+		chipsContainer,
+		resultsCount
+	} = getElements();
+
+	state.currentQuery = '';
+	state.currentPage = 1;
+	state.totalCount = 0;
+	state.totalPages = 0;
+	state.queryInterpreted = {};
+	state.activeFilters = {};
+	state.currentResults = [];
+	state.projectMap = {};
+	state.hasSearched = false;
+
+	if (resultsGrid) {
+		resultsGrid.innerHTML = '';
+	}
+
+	if (resultsCount) {
+		resultsCount.textContent = '';
+	}
+
+	if (emptyState) {
+		emptyState.classList.add('d-none');
+	}
+
+	if (relaxedBanner) {
+		relaxedBanner.classList.add('d-none');
+	}
+
+	if (paginationWrapper) {
+		paginationWrapper.classList.add('d-none');
+	}
+
+	if (chipsContainer) {
+		chipsContainer.innerHTML = '';
+	}
+
+	if (chipsRow) {
+		chipsRow.classList.add('d-none');
+	}
+
+	if (resultsSection) {
+		resultsSection.classList.add('d-none');
+	}
 }
 
 function escapeHtml(value) {
@@ -275,16 +435,19 @@ async function performSearch(query, page = 1, overrideFilters = null) {
 		const requestBody = {
 			query: finalQuery,
 			page: page,
-			limit: state.currentLimit
+			limit: state.currentLimit,
+			platform: 'web'
 		};
 
-		if (hasGeoIntent(finalQuery)) {
+		const endpoint = isPostsSearchMode() ? POST_SEARCH_ENDPOINT : SEARCH_ENDPOINT;
+
+		if (!isPostsSearchMode() && hasGeoIntent(finalQuery)) {
 			const coords = await getCurrentCoordinates();
 			requestBody.geo_lat = coords.lat;
 			requestBody.geo_lng = coords.lng;
 		}
 
-		const response = await fetch(SEARCH_ENDPOINT, {
+		const response = await fetch(endpoint, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json'
@@ -312,7 +475,14 @@ async function performSearch(query, page = 1, overrideFilters = null) {
 		}
 
 		renderResults(payload);
-		updateChips(payload.query_interpreted || {});
+
+		if (String(payload.search_domain || '') === 'posts') {
+			updatePostChips(payload.query_interpreted || {});
+			state.activeFilters = {};
+		} else {
+			updateChips(payload.query_interpreted || {});
+		}
+
 		updatePagination(payload.pagination || {});
 	} catch (error) {
 		if (error && error.name === 'AbortError') {
@@ -329,6 +499,12 @@ async function performSearch(query, page = 1, overrideFilters = null) {
 }
 
 async function fetchSuggestions(query) {
+	if (isPostsSearchMode()) {
+		currentSuggestions = [];
+		hideSuggestions();
+		return;
+	}
+
 	const trimmed = (query || '').trim();
 	if (trimmed.length < 2) {
 		currentSuggestions = [];
@@ -369,23 +545,29 @@ function renderResults(apiResponse) {
 		return;
 	}
 
+	const isPostsDomain = String(apiResponse.search_domain || '') === 'posts' || isPostsSearchMode();
 	const interpreted = apiResponse.query_interpreted || {};
 	const pagination = apiResponse.pagination || {};
-	const projects = Array.isArray(apiResponse.data) ? apiResponse.data : [];
+	const rows = Array.isArray(apiResponse.data) ? apiResponse.data : [];
 	const apiTotalCount = Number(pagination.total_count || 0);
-	const effectiveTotalCount = Math.max(apiTotalCount, projects.length);
+	const effectiveTotalCount = Math.max(apiTotalCount, rows.length);
 
 	state.queryInterpreted = interpreted;
 	state.totalCount = effectiveTotalCount;
 	state.totalPages = Number(pagination.total_pages || 0);
 	state.currentPage = Number(pagination.current_page || state.currentPage);
-	state.currentResults = projects;
-	state.projectMap = {};
-	projects.forEach(function mapProject(project) {
-		state.projectMap[String(project.project_id)] = project;
-	});
+	state.currentResults = rows;
 
-	if (!Object.keys(state.activeFilters).length) {
+	if (!isPostsDomain) {
+		state.projectMap = {};
+		rows.forEach(function mapProject(project) {
+			state.projectMap[String(project.project_id)] = project;
+		});
+	} else {
+		state.projectMap = {};
+	}
+
+	if (!isPostsDomain && !Object.keys(state.activeFilters).length) {
 		state.activeFilters = Object.entries(interpreted).reduce(function build(acc, entry) {
 			const key = entry[0];
 			const value = normalizeFilterValue(key, entry[1]);
@@ -402,7 +584,7 @@ function renderResults(apiResponse) {
 		relaxedBanner.classList.toggle('d-none', !Boolean(apiResponse.is_relaxed));
 	}
 
-	if (projects.length === 0) {
+	if (rows.length === 0) {
 		resultsGrid.innerHTML = '';
 		if (emptyState) {
 			emptyState.classList.remove('d-none');
@@ -411,7 +593,11 @@ function renderResults(apiResponse) {
 			paginationWrapper.classList.add('d-none');
 		}
 	} else {
-		renderProjectGrid();
+		if (isPostsDomain) {
+			renderPostGrid();
+		} else {
+			renderProjectGrid();
+		}
 
 		if (emptyState) {
 			emptyState.classList.add('d-none');
@@ -425,7 +611,9 @@ function renderResults(apiResponse) {
 	if (resultsCount) {
 		const cleanedLocation = cleanLocationLabel(interpreted.location);
 		const locationText = cleanedLocation ? ' in ' + cleanedLocation : '';
-		resultsCount.textContent = state.totalCount + ' properties found' + locationText;
+		resultsCount.textContent = isPostsDomain
+			? state.totalCount + ' postings found' + locationText
+			: state.totalCount + ' properties found' + locationText;
 	}
 }
 
@@ -438,6 +626,61 @@ function renderProjectGrid() {
 	const sortedProjects = sortProjects(state.currentResults);
 	resultsGrid.innerHTML = sortedProjects.map(function mapProject(project) {
 		return renderCard(project);
+	}).join('');
+}
+
+function getPostStatusClass(statusLabel) {
+	const normalized = String(statusLabel || '').toLowerCase();
+
+	if (normalized.includes('verified')) {
+		return 'ready-to-move';
+	}
+
+	if (normalized.includes('blocked') || normalized.includes('lapsed')) {
+		return 'under-construction';
+	}
+
+	return 'upcoming';
+}
+
+function renderPostCard(post) {
+	const statusClass = getPostStatusClass(post.post_status_label);
+	const budgetText = post.budget_formatted || formatIndianCurrency(post.monthly_rent || post.budget);
+	const typeBadge = post.flat_type_label || post.flat_property_type_label || 'Listing';
+	const postIntent = post.post_type_label || 'Post';
+
+	return [
+		'<div class="col">',
+		'<article class="card property-card h-100">',
+		'<div class="card-body d-flex flex-column">',
+		'<div class="d-flex justify-content-between align-items-start gap-2 mb-2">',
+		'<span class="badge text-bg-light">' + escapeHtml(postIntent) + '</span>',
+		'<span class="status-badge ' + escapeHtml(statusClass) + ' position-static">' + escapeHtml(post.post_status_label || 'In Progress') + '</span>',
+		'</div>',
+		'<h5 class="card-title mb-1">' + escapeHtml(post.title || '-') + '</h5>',
+		'<p class="text-muted mb-2 small">' + escapeHtml(post.location_name || '-') + '</p>',
+		'<p class="mb-2"><span class="badge text-bg-light">' + escapeHtml(typeBadge) + '</span></p>',
+		'<div class="price-main">' + escapeHtml(budgetText || 'Price on Request') + '</div>',
+		'<div class="price-inclusive mb-2">' + escapeHtml(post.post_for_label || '-') + '</div>',
+		'<div class="d-flex justify-content-between text-muted small mb-2">',
+		'<span><i class="bi bi-aspect-ratio me-1"></i>' + escapeHtml(post.carpet || 'NA') + ' sqft</span>',
+		'<span><i class="bi bi-building me-1"></i>' + escapeHtml(post.project_name || 'Direct') + '</span>',
+		'</div>',
+		'<p class="small text-muted mb-0">' + escapeHtml(post.description || '') + '</p>',
+		'</div>',
+		'</article>',
+		'</div>'
+	].join('');
+}
+
+function renderPostGrid() {
+	const { resultsGrid } = getElements();
+	if (!resultsGrid) {
+		return;
+	}
+
+	resultsGrid.innerHTML = state.currentResults.map(function mapPost(post) {
+		return renderPostCard(post);
 	}).join('');
 }
 
@@ -565,13 +808,86 @@ function renderSuggestions(suggestions) {
 	showSuggestions();
 }
 
-function updateChips(queryInterpreted) {
-	const { chipsContainer, chipsRow } = getElements();
+function clearFilterChips() {
+	const { chipsContainer, chipsRow, clearAllBtn } = getElements();
+	if (chipsContainer) {
+		chipsContainer.innerHTML = '';
+	}
+
+	if (chipsRow) {
+		chipsRow.classList.add('d-none');
+	}
+
+	if (clearAllBtn) {
+		clearAllBtn.classList.remove('d-none');
+	}
+}
+
+function updatePostChips(queryInterpreted) {
+	const { chipsContainer, chipsRow, clearAllBtn } = getElements();
 	if (!chipsContainer || !chipsRow) {
 		return;
 	}
 
 	chipsContainer.innerHTML = '';
+
+	if (clearAllBtn) {
+		clearAllBtn.classList.add('d-none');
+	}
+
+	const interpreted = queryInterpreted || {};
+	const chips = [];
+
+	if (interpreted.post_type) {
+		chips.push(String(interpreted.post_type));
+	}
+
+	if (interpreted.post_for) {
+		chips.push(String(interpreted.post_for));
+	}
+
+	if (Array.isArray(interpreted.flat_types) && interpreted.flat_types.length > 0) {
+		chips.push(interpreted.flat_types.join(', '));
+	}
+
+	if (interpreted.location) {
+		chips.push('In ' + cleanLocationLabel(interpreted.location));
+	}
+
+	if (interpreted.max_budget) {
+		chips.push('Under ' + formatIndianCurrency(Number(interpreted.max_budget)));
+	}
+
+	if (interpreted.carpet_range) {
+		chips.push(String(interpreted.carpet_range));
+	}
+
+	if (chips.length === 0) {
+		chipsRow.classList.add('d-none');
+		return;
+	}
+
+	chips.forEach(function createPostChip(label) {
+		const chip = document.createElement('span');
+		chip.className = 'filter-chip';
+		chip.innerHTML = '<span>' + escapeHtml(label) + '</span>';
+		chipsContainer.appendChild(chip);
+	});
+
+	chipsRow.classList.remove('d-none');
+}
+
+function updateChips(queryInterpreted) {
+	const { chipsContainer, chipsRow, clearAllBtn } = getElements();
+	if (!chipsContainer || !chipsRow) {
+		return;
+	}
+
+	chipsContainer.innerHTML = '';
+
+	if (clearAllBtn) {
+		clearAllBtn.classList.remove('d-none');
+	}
 
 	state.activeFilters = Object.entries(queryInterpreted || {}).reduce(function collect(acc, entry) {
 		const key = entry[0];
@@ -769,6 +1085,10 @@ function bindResultGridActions() {
 	}
 
 	resultsGrid.addEventListener('click', function onGridClick(event) {
+		if (isPostsSearchMode()) {
+			return;
+		}
+
 		const favoriteBtn = event.target.closest('.favorite-btn');
 		if (favoriteBtn) {
 			event.preventDefault();
@@ -826,7 +1146,11 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 	refreshFavoritesFromServer().then(function onFavoritesHydrated() {
 		updateFavoritesNavBadge();
 		if (state.currentResults.length > 0) {
-			renderProjectGrid();
+			if (isPostsSearchMode()) {
+				renderPostGrid();
+			} else {
+				renderProjectGrid();
+			}
 		}
 	});
 
@@ -837,7 +1161,9 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 		suggestionDropdown,
 		clearAllBtn,
 		clearSearchBtn,
-		sortSelect
+		sortSelect,
+		modeProjectsBtn,
+		modePostsBtn
 	} = getElements();
 
 	if (!searchInput || !searchBtn) {
@@ -845,6 +1171,19 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 	}
 
 	bindResultGridActions();
+	updateSearchModeUI();
+
+	if (modeProjectsBtn) {
+		modeProjectsBtn.addEventListener('click', function onProjectsModeClick() {
+			setSearchMode(SEARCH_MODE_PROJECTS, true);
+		});
+	}
+
+	if (modePostsBtn) {
+		modePostsBtn.addEventListener('click', function onPostsModeClick() {
+			setSearchMode(SEARCH_MODE_POSTS, true);
+		});
+	}
 
 	const debouncedSuggestions = debounce(function onInputSuggest(value) {
 		fetchSuggestions(value);
@@ -916,7 +1255,9 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 
 	document.querySelectorAll('.quick-pill').forEach(function bindQuickPill(button) {
 		button.addEventListener('click', function onQuickPillClick() {
-			const query = button.getAttribute('data-query') || '';
+			const query = isPostsSearchMode()
+				? (button.getAttribute('data-post-query') || button.getAttribute('data-query') || '')
+				: (button.getAttribute('data-query') || '');
 			searchInput.value = query;
 			performSearch(query, 1);
 		});
@@ -924,6 +1265,10 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 
 	if (sortSelect) {
 		sortSelect.addEventListener('change', function onSortChange() {
+			if (isPostsSearchMode()) {
+				return;
+			}
+
 			state.sortBy = sortSelect.value || 'relevance';
 			if (state.currentResults.length > 0) {
 				renderProjectGrid();
@@ -934,15 +1279,14 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 	if (clearAllBtn) {
 		clearAllBtn.addEventListener('click', function onClearAll(event) {
 			event.preventDefault();
+
+			if (isPostsSearchMode()) {
+				return;
+			}
+
 			state.activeFilters = {};
 			state.queryInterpreted = {};
-			const { chipsRow, chipsContainer } = getElements();
-			if (chipsContainer) {
-				chipsContainer.innerHTML = '';
-			}
-			if (chipsRow) {
-				chipsRow.classList.add('d-none');
-			}
+			clearFilterChips();
 			performSearch(searchInput.value, 1);
 		});
 	}
@@ -1003,6 +1347,8 @@ document.addEventListener('DOMContentLoaded', function onReady() {
 			if (resultsSection) {
 				resultsSection.classList.add('d-none');
 			}
+
+			updateSearchModeUI();
 		});
 	}
 });

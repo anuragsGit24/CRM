@@ -1,4 +1,4 @@
-const PROPERTY_ENDPOINT = 'http://localhost/Internship/SEARCH_FEATURE/endpoints/property.php';
+const PROPERTY_ENDPOINT = getApiEndpoint('property.php');
 const DETAIL_IMAGE_FALLBACK = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="%231A1A2E"/><stop offset="100%" stop-color="%230F3460"/></linearGradient></defs><rect width="1200" height="600" fill="url(%23g)"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="68" font-family="Inter,Arial,sans-serif">PropSearch</text></svg>';
 
 function detailEscape(value) {

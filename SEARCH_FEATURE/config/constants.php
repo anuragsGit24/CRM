@@ -65,6 +65,89 @@ if (!defined('PROPERTY_TYPE_MAP')) {
 	]);
 }
 
+if (!defined('POST_TYPE_MAP')) {
+	define('POST_TYPE_MAP', [
+		'buyer' => 1,
+		'buy' => 1,
+		'looking' => 1,
+		'need' => 1,
+		'want' => 1,
+		'seller' => 2,
+		'sell' => 2,
+		'selling' => 2,
+		'sale' => 2,
+		'resale' => 2,
+	]);
+}
+
+if (!defined('POST_PROPERTY_TYPE_MAP')) {
+	define('POST_PROPERTY_TYPE_MAP', [
+		'flat' => 1,
+		'apartment' => 1,
+		'office' => 2,
+		'office space' => 2,
+		'commercial' => 2,
+		'shop' => 3,
+		'retail' => 3,
+		'bungalow' => 4,
+		'villa' => 4,
+		'independent house' => 4,
+		'plot' => 5,
+		'land' => 5,
+		'na plot' => 5,
+	]);
+}
+
+if (!defined('POST_STATUS_MAP')) {
+	define('POST_STATUS_MAP', [
+		'in progress' => 0,
+		'pending' => 0,
+		'verified' => 1,
+		'active' => 1,
+		'expired' => 2,
+		'lapsed' => 2,
+		'deal lapsed' => 2,
+		'blocked' => 3,
+		'deal closed' => 4,
+		'confirmed' => 4,
+		'deal confirmed' => 4,
+	]);
+}
+
+if (!defined('POST_FOR_MAP')) {
+	define('POST_FOR_MAP', [
+		'rent' => 2,
+		'rental' => 2,
+		'lease' => 2,
+		'monthly' => 2,
+		'sale' => 1,
+		'buy' => 1,
+		'purchase' => 1,
+	]);
+}
+
+if (!defined('POST_FLAT_TYPE_MAP')) {
+	define('POST_FLAT_TYPE_MAP', [
+		'1 bhk' => 1,
+		'1bhk' => 1,
+		'1.5 bhk' => 2,
+		'1.5bhk' => 2,
+		'2 bhk' => 3,
+		'2bhk' => 3,
+		'3 bhk' => 4,
+		'3bhk' => 4,
+		'4 bhk' => 5,
+		'4bhk' => 5,
+		'studio' => 6,
+		'5 bhk' => 7,
+		'5bhk' => 7,
+	]);
+}
+
+if (!defined('DEFAULT_POST_STATUSES')) {
+	define('DEFAULT_POST_STATUSES', [0, 1]);
+}
+
 if (!defined('AMENITY_ALIASES')) {
 	define('AMENITY_ALIASES', [
 		'gym' => 'Gym',

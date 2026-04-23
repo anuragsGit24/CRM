@@ -16,7 +16,7 @@ function formatIndianCurrency(amount) {
 	if (numericAmount < 10000000) {
 		const inLac = numericAmount / 100000;
 		return '₹' + trimNumber(inLac) + ' Lac';
-	}
+	} 
 
 	const inCrore = numericAmount / 10000000;
 	return '₹' + trimNumber(inCrore) + ' Cr';
@@ -105,9 +105,20 @@ function debounce(func, wait) {
 	};
 }
 
+function getApiEndpoint(endpointFile) {
+	const path = window.location.pathname || '';
+	const frontendMarker = '/frontend/';
+	const markerIndex = path.toLowerCase().indexOf(frontendMarker);
+	const basePath = markerIndex >= 0
+		? path.slice(0, markerIndex)
+		: '/Anurag/CRM/SEARCH_FEATURE';
+
+	return window.location.origin + basePath + '/endpoints/' + endpointFile;
+}
+
 const FAVORITES_STORAGE_KEY = 'propsearch_favorites';
 const FAVORITES_SESSION_KEY = 'propsearch_favorites_session_id';
-const FAVORITES_ENDPOINT = 'http://localhost/Internship/SEARCH_FEATURE/endpoints/favorites.php';
+const FAVORITES_ENDPOINT = getApiEndpoint('favorites.php');
 
 let fallbackFavoritesSessionId = null;
 

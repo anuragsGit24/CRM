@@ -53,6 +53,30 @@
 			Search naturally - just type what you're looking for
 		</p>
 
+		<div class="search-mode-switch mt-4 mx-auto" style="max-width: 480px;" role="tablist" aria-label="Search mode">
+			<button
+				id="search-mode-projects"
+				class="search-mode-btn active"
+				type="button"
+				data-search-mode="projects"
+				role="tab"
+				aria-selected="true"
+			>
+				Normal Search
+			</button>
+			<button
+				id="search-mode-posts"
+				class="search-mode-btn"
+				type="button"
+				data-search-mode="posts"
+				role="tab"
+				aria-selected="false"
+			>
+				Posting Search
+			</button>
+		</div>
+		<p id="search-mode-hint" class="mt-2 mb-0 text-white-50 small">Normal Search: projects and flats</p>
+
 		<div class="mt-4 mx-auto position-relative" style="max-width: 680px;">
 			<div id="search-wrapper" class="search-bar-wrapper mx-auto">
 				<div class="input-group">
@@ -76,17 +100,45 @@
 		</div>
 
 		<div class="d-flex gap-2 justify-content-center flex-wrap mt-3">
-			<button class="quick-pill" data-query="1 BHK Mumbai" type="button">
-				<i class="bi bi-house-door me-1"></i>1 BHK Mumbai
+			<button
+				class="quick-pill"
+				data-query="1 BHK Mumbai"
+				data-post-query="buyer 1 bhk vikhroli"
+				data-project-label="1 BHK Mumbai"
+				data-post-label="Buyer 1 BHK Vikhroli"
+				type="button"
+			>
+				<i class="bi bi-house-door me-1"></i><span class="quick-pill-text">1 BHK Mumbai</span>
 			</button>
-			<button class="quick-pill" data-query="Ready to Move Thane" type="button">
-				<i class="bi bi-check-circle me-1"></i>Ready to Move Thane
+			<button
+				class="quick-pill"
+				data-query="Ready to Move Thane"
+				data-post-query="seller 2 bhk ghatkopar"
+				data-project-label="Ready to Move Thane"
+				data-post-label="Seller 2 BHK Ghatkopar"
+				type="button"
+			>
+				<i class="bi bi-check-circle me-1"></i><span class="quick-pill-text">Ready to Move Thane</span>
 			</button>
-			<button class="quick-pill" data-query="Luxury Powai" type="button">
-				<i class="bi bi-star me-1"></i>Luxury Powai
+			<button
+				class="quick-pill"
+				data-query="Luxury Powai"
+				data-post-query="office rent powai under 80k"
+				data-project-label="Luxury Powai"
+				data-post-label="Office Rent Powai"
+				type="button"
+			>
+				<i class="bi bi-star me-1"></i><span class="quick-pill-text">Luxury Powai</span>
 			</button>
-			<button class="quick-pill" data-query="2 BHK under 1 Cr" type="button">
-				<i class="bi bi-cash-coin me-1"></i>2 BHK under 1 Cr
+			<button
+				class="quick-pill"
+				data-query="2 BHK under 1 Cr"
+				data-post-query="buyer 2 bhk thane under 1.2 cr"
+				data-project-label="2 BHK under 1 Cr"
+				data-post-label="Buyer 2 BHK Under 1.2 Cr"
+				type="button"
+			>
+				<i class="bi bi-cash-coin me-1"></i><span class="quick-pill-text">2 BHK under 1 Cr</span>
 			</button>
 		</div>
 	</div>
@@ -106,7 +158,7 @@
 			<i class="bi bi-exclamation-triangle-fill me-2"></i>Exact matches not found. Showing similar properties.
 		</div>
 
-		<div class="d-flex justify-content-between align-items-center my-3 flex-wrap gap-2">
+		<div id="sort-wrapper" class="d-flex justify-content-between align-items-center my-3 flex-wrap gap-2">
 			<h6 id="results-count" class="mb-0 fw-semibold"></h6>
 			<select id="sort-select" class="form-select form-select-sm" style="max-width: 220px;" aria-label="Sort results">
 				<option value="relevance" selected>Relevance</option>
