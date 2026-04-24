@@ -41,7 +41,6 @@ final class Response
 			$httpStatusCode
 		);
 	}
-
 	private static function sendJson(array $payload, int $httpStatusCode): void
 	{
 		if (!headers_sent()) {
