@@ -193,6 +193,10 @@ try {
 
 	$builder = new PostSearchQueryBuilder($pdo);
 
+	$interpretedParsed = $parsed;
+	$interpretedFilters = $directFilters;
+	$interpretedLocationId = $locationId;
+
 	$activeParsed = $parsed;
 	$activeFilters = $directFilters;
 
@@ -305,20 +309,20 @@ try {
 
 	$rows = $runSelect($pdo, $built);
 
-	$getEffectiveInt = static function (string $key) use (&$activeParsed, &$activeFilters, $sanitizeNullableInt): ?int {
-		if (array_key_exists($key, $activeFilters)) {
-			return $sanitizeNullableInt($activeFilters[$key] ?? null, 0, null);
+	$getEffectiveInt = static function (string $key) use (&$interpretedParsed, &$interpretedFilters, $sanitizeNullableInt): ?int {
+		if (array_key_exists($key, $interpretedFilters)) {
+			return $sanitizeNullableInt($interpretedFilters[$key] ?? null, 0, null);
 		}
 
-		return $sanitizeNullableInt($activeParsed[$key] ?? null, 0, null);
+		return $sanitizeNullableInt($interpretedParsed[$key] ?? null, 0, null);
 	};
 
-	$getEffectiveIntArray = static function (string $key) use (&$activeParsed, &$activeFilters): array {
-		if (array_key_exists($key, $activeFilters)) {
-			return is_array($activeFilters[$key]) ? $activeFilters[$key] : [];
+	$getEffectiveIntArray = static function (string $key) use (&$interpretedParsed, &$interpretedFilters): array {
+		if (array_key_exists($key, $interpretedFilters)) {
+			return is_array($interpretedFilters[$key]) ? $interpretedFilters[$key] : [];
 		}
 
-		return is_array($activeParsed[$key] ?? null) ? $activeParsed[$key] : [];
+		return is_array($interpretedParsed[$key] ?? null) ? $interpretedParsed[$key] : [];
 	};
 
 	$effectivePostType = $getEffectiveInt('post_type');
@@ -329,45 +333,25 @@ try {
 	$effectiveMaxCarpet = $getEffectiveInt('max_carpet');
 
 	$locationName = null;
-	if ($locationId !== null) {
+	if ($interpretedLocationId !== null) {
 		$locationStmt = $pdo->prepare('SELECT name FROM location WHERE status = 1 AND id = :location_id LIMIT 1');
-		$locationStmt->execute([':location_id' => $locationId]);
+		$locationStmt->execute([':location_id' => $interpretedLocationId]);
 		$resolvedName = $locationStmt->fetchColumn();
 		if ($resolvedName !== false) {
 			$locationName = trim((string) $resolvedName);
 		}
 	}
-	if ($locationName === null && ($activeParsed['raw_location'] ?? null) !== null) {
-		$locationName = (string) $activeParsed['raw_location'];
+	if ($locationName === null && ($interpretedParsed['raw_location'] ?? null) !== null) {
+		$locationName = (string) $interpretedParsed['raw_location'];
 	}
 
-	$flatTypeLabelsById = [];
-	if ($effectiveFlatTypeIds !== []) {
-		$ids = array_values(array_filter(array_map(static fn ($id): int => (int) $id, $effectiveFlatTypeIds), static fn (int $id): bool => $id > 0));
-		if ($ids !== []) {
-			$placeholders = [];
-			$params = [];
-			foreach ($ids as $index => $id) {
-				$key = ':id_' . ($index + 1);
-				$placeholders[] = $key;
-				$params[$key] = $id;
-			}
-
-			$flatTypeStmt = $pdo->prepare('SELECT id, label FROM flat_types WHERE id IN (' . implode(', ', $placeholders) . ')');
-			foreach ($params as $param => $value) {
-				$flatTypeStmt->bindValue($param, $value, PDO::PARAM_INT);
-			}
-			$flatTypeStmt->execute();
-
-			foreach ($flatTypeStmt->fetchAll() as $flatTypeRow) {
-				$id = isset($flatTypeRow['id']) ? (int) $flatTypeRow['id'] : 0;
-				$label = isset($flatTypeRow['label']) ? trim((string) $flatTypeRow['label']) : '';
-				if ($id > 0 && $label !== '') {
-					$flatTypeLabelsById[$id] = $label;
-				}
-			}
-		}
-	}
+	$flatTypeIdToLabel = defined('FLAT_TYPE_ID_TO_LABEL') && is_array(FLAT_TYPE_ID_TO_LABEL)
+		? FLAT_TYPE_ID_TO_LABEL
+		: [];
+	$flatTypeLabels = array_values(array_map(
+		static fn ($id) => $flatTypeIdToLabel[(int) $id] ?? (string) $id,
+		$effectiveFlatTypeIds
+	));
 
 	$postTypeLabels = [1 => 'Buyer', 2 => 'Seller'];
 	$postForLabels = [1 => 'Sale', 2 => 'Rental'];
@@ -405,10 +389,7 @@ try {
 	$queryInterpreted = [
 		'post_type' => isset($postTypeLabels[$effectivePostType ?? 0]) ? $postTypeLabels[$effectivePostType] : null,
 		'post_for' => isset($postForLabels[$effectivePostFor ?? 0]) ? $postForLabels[$effectivePostFor] : null,
-		'flat_types' => array_values(array_filter(array_map(
-			static fn ($id) => $flatTypeLabelsById[(int) $id] ?? null,
-			$effectiveFlatTypeIds
-		))),
+		'flat_types' => $flatTypeLabels,
 		'location' => $locationName,
 		'max_budget' => $effectiveMaxBudget,
 		'carpet_range' => null,

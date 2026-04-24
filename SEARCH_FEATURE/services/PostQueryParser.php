@@ -5,21 +5,28 @@ final class PostQueryParser
 {
 	public static function parse(string $rawQuery): array
 	{
-		$working = self::normalizeInput($rawQuery);
+		$normalizedRawQuery = self::normalizeInput($rawQuery);
+		$working = $normalizedRawQuery;
 		$parsed = self::defaultPayload();
 
 		if ($working === '') {
 			return $parsed;
 		}
 
-		// 1) Post type
-		$parsed['post_type'] = self::extractFirstMappedIntValue($working, self::getMapConstant('POST_TYPE_MAP'));
-
-		// 2) Post for
+		// 1) Post for
 		$parsed['post_for'] = self::extractFirstMappedIntValue($working, self::getMapConstant('POST_FOR_MAP'));
 
+		// 2) Post type
+		$parsed['post_type'] = self::extractFirstMappedIntValue($working, self::getMapConstant('POST_TYPE_MAP'));
+		$sellerIntent = self::inferPostTypeFromRawQuery($normalizedRawQuery);
+		if ($sellerIntent === 2) {
+			$parsed['post_type'] = 2;
+		} elseif ($parsed['post_type'] === null) {
+			$parsed['post_type'] = $sellerIntent;
+		}
+
 		// 3) Flat type (multi-select)
-		$parsed['flat_type_ids'] = self::extractMultiMappedIntValues($working, self::getMapConstant('POST_FLAT_TYPE_MAP'));
+		$parsed['flat_type_ids'] = self::extractFlatTypeIds($working);
 
 		// 4) Property type
 		$parsed['flat_property_type'] = self::extractFirstMappedIntValue($working, self::getMapConstant('POST_PROPERTY_TYPE_MAP'));
@@ -32,9 +39,18 @@ final class PostQueryParser
 
 		// 7) Remaining text becomes raw location
 		$remaining = self::normalizeInput($working);
-		$parsed['raw_location'] = self::normalizeRawLocation($remaining);
+		$parsed['raw_location'] = self::cleanupRawLocationCandidate($remaining);
 
 		return $parsed;
+	}
+
+	private static function inferPostTypeFromRawQuery(string $normalizedRawQuery): ?int
+	{
+		if ($normalizedRawQuery === '') {
+			return null;
+		}
+
+		return preg_match('/\b(?:seller|sell|selling)\b/i', $normalizedRawQuery) === 1 ? 2 : null;
 	}
 
 	private static function defaultPayload(): array
@@ -150,6 +166,104 @@ final class PostQueryParser
 		}
 
 		return $ordered;
+	}
+
+	private static function extractFlatTypeIds(string &$working): array
+	{
+		$capturedMatches = [];
+
+		$studioPattern = '/\bstudio\b/i';
+		while (preg_match($studioPattern, $working, $matches, PREG_OFFSET_CAPTURE) === 1) {
+			$matchedText = (string) ($matches[0][0] ?? '');
+			$offset = (int) ($matches[0][1] ?? -1);
+			if ($matchedText === '' || $offset < 0) {
+				break;
+			}
+
+			$capturedMatches[] = [
+				'offset' => $offset,
+				'value' => 6,
+			];
+
+			$working = substr_replace($working, str_repeat(' ', strlen($matchedText)), $offset, strlen($matchedText));
+		}
+
+		$bhkPatterns = [
+			'/\b(\d\.?\d*)[\s\-]?bhk\b/i',
+			'/\b(\d)[\s\-]?(?:bedroom|bed\s*room|bedrooms|bed\s*rooms)\b/i',
+		];
+
+		foreach ($bhkPatterns as $pattern) {
+			while (preg_match($pattern, $working, $matches, PREG_OFFSET_CAPTURE) === 1) {
+				$matchedText = (string) ($matches[0][0] ?? '');
+				$offset = (int) ($matches[0][1] ?? -1);
+				$bhkValueToken = (string) ($matches[1][0] ?? '');
+				if ($matchedText === '' || $offset < 0 || $bhkValueToken === '') {
+					break;
+				}
+
+				$flatTypeId = self::mapBhkValueToFlatTypeId($bhkValueToken);
+				if ($flatTypeId !== null) {
+					$capturedMatches[] = [
+						'offset' => $offset,
+						'value' => $flatTypeId,
+					];
+				}
+
+				$working = substr_replace($working, str_repeat(' ', strlen($matchedText)), $offset, strlen($matchedText));
+			}
+		}
+
+		if ($capturedMatches === []) {
+			return [];
+		}
+
+		usort(
+			$capturedMatches,
+			static fn (array $a, array $b): int => ((int) $a['offset']) <=> ((int) $b['offset'])
+		);
+
+		$ordered = [];
+		foreach ($capturedMatches as $item) {
+			$value = (int) $item['value'];
+			if (!in_array($value, $ordered, true)) {
+				$ordered[] = $value;
+			}
+		}
+
+		return $ordered;
+	}
+
+	private static function mapBhkValueToFlatTypeId(string $bhkValueToken): ?int
+	{
+		$value = (float) $bhkValueToken;
+		if ($value <= 0) {
+			return null;
+		}
+
+		if (abs($value - 1.5) < 0.00001) {
+			return 2;
+		}
+
+		$asInt = (int) round($value);
+		if (abs($value - (float) $asInt) >= 0.00001) {
+			return null;
+		}
+
+		switch ($asInt) {
+			case 1:
+				return 1;
+			case 2:
+				return 3;
+			case 3:
+				return 4;
+			case 4:
+				return 5;
+			case 5:
+				return 7;
+			default:
+				return null;
+		}
 	}
 
 	private static function extractBudgets(string &$working, array &$parsed): void
@@ -344,6 +458,12 @@ final class PostQueryParser
 			$clean = strtolower($clean);
 		}
 
+		// Replace separator dots, but keep decimal dots like 1.5.
+		$clean = preg_replace('/(?<![0-9])\.(?![0-9])/', ' ', $clean) ?? $clean;
+
+		// Normalize slash-separated locations into spaces.
+		$clean = str_replace('/', ' ', $clean);
+
 		$clean = preg_replace('/[^\p{L}\p{N}\s\.,]/u', ' ', $clean) ?? $clean;
 		$clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
 
@@ -377,5 +497,72 @@ final class PostQueryParser
 		$clean = trim($clean, " \t\n\r\0\x0B,.");
 
 		return $clean !== '' ? $clean : null;
+	}
+
+	private static function cleanupRawLocationCandidate(string $value): ?string
+	{
+		$clean = self::normalizeInput($value);
+		if ($clean === '') {
+			return null;
+		}
+
+		// Normalize separators in the remaining fragment before token filtering.
+		$clean = preg_replace('/(?<![0-9])\.(?![0-9])/', ' ', $clean) ?? $clean;
+		$clean = str_replace(['/', '-'], ' ', $clean);
+		$clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
+		$clean = trim($clean);
+
+		if ($clean === '') {
+			return null;
+		}
+
+		$stopWords = [
+			'for', 'in', 'at', 'near', 'the', 'a', 'an', 'is', 'are', 'was',
+			'i', 'my', 'me', 'we', 'he', 'she', 'they', 'it',
+			'interested',
+			'want', 'need', 'looking', 'searching', 'required', 'require',
+			'only', 'just', 'also', 'and', 'or', 'with', 'without',
+			'to', 'of', 'on', 'by', 'from', 'into', 'about',
+			'have', 'has', 'had', 'will', 'would', 'should', 'could',
+			'new', 'old', 'good', 'best', 'nice', 'big', 'small',
+			'fully', 'semi', 'fully furnished', 'semi furnished', 'furnished',
+			'flat', 'property', 'house', 'home', 'apartment',
+			'floor', 'floors', 'story', 'building',
+			'for', 'resale', 'sale', 'buy', 'purchase',
+			'bhk', 'bedroom', 'sqft', 'sq', 'ft', 'carpet',
+		];
+
+		$stopWordLookup = array_fill_keys($stopWords, true);
+		$tokens = preg_split('/\s+/', $clean) ?: [];
+		$keptTokens = [];
+
+		foreach ($tokens as $token) {
+			$token = trim($token, " \t\n\r\0\x0B,.");
+			if ($token === '') {
+				continue;
+			}
+
+			if (isset($stopWordLookup[$token])) {
+				continue;
+			}
+
+			if (preg_match('/^\d+$/', $token) === 1) {
+				continue;
+			}
+
+			if (strlen($token) < 3) {
+				continue;
+			}
+
+			$keptTokens[] = $token;
+		}
+
+		if ($keptTokens === []) {
+			return null;
+		}
+
+		$location = implode(' ', $keptTokens);
+
+		return self::normalizeRawLocation($location);
 	}
 }

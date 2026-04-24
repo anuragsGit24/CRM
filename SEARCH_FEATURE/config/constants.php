@@ -120,7 +120,10 @@ if (!defined('POST_FOR_MAP')) {
 		'rental' => 2,
 		'lease' => 2,
 		'monthly' => 2,
+		'sell' => 1,
+		'selling' => 1,
 		'sale' => 1,
+		'resale' => 1,
 		'buy' => 1,
 		'purchase' => 1,
 	]);
@@ -141,6 +144,18 @@ if (!defined('POST_FLAT_TYPE_MAP')) {
 		'studio' => 6,
 		'5 bhk' => 7,
 		'5bhk' => 7,
+	]);
+}
+
+if (!defined('FLAT_TYPE_ID_TO_LABEL')) {
+	define('FLAT_TYPE_ID_TO_LABEL', [
+		1 => '1 BHK',
+		2 => '1.5 BHK',
+		3 => '2 BHK',
+		4 => '3 BHK',
+		5 => '4 BHK',
+		6 => 'Studio',
+		7 => '5 BHK',
 	]);
 }
 
