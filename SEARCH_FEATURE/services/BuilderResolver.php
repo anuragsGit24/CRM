@@ -4,6 +4,48 @@ declare(strict_types=1);
 final class BuilderResolver
 {
 	private PDO $pdo;
+	private const TOKEN_STOP_WORDS = [
+		'property',
+		'properties',
+		'flat',
+		'flats',
+		'flates',
+		'apartment',
+		'apartments',
+		'house',
+		'houses',
+		'home',
+		'homes',
+		'in',
+		'at',
+		'on',
+		'for',
+		'from',
+		'to',
+		'of',
+		'near',
+		'around',
+		'with',
+		'and',
+		'south',
+		'north',
+		'east',
+		'west',
+		'mumbai',
+		'bombay',
+		'thane',
+		'navi',
+		'under',
+		'over',
+		'below',
+		'above',
+		'crore',
+		'lakhs',
+		'lakh',
+		'cr',
+		'bhk',
+		'studio',
+	];
 
 	public function __construct(PDO $pdo)
 	{
@@ -61,6 +103,11 @@ final class BuilderResolver
 		foreach ($tokens as $token) {
 			$word = trim($token);
 			if (strlen($word) < 4) {
+				continue;
+			}
+
+			$normalizedWord = strtolower($word);
+			if (in_array($normalizedWord, self::TOKEN_STOP_WORDS, true)) {
 				continue;
 			}
 

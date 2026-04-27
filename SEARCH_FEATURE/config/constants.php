@@ -38,7 +38,11 @@ if (!defined('TRANSACTION_MAP')) {
 if (!defined('SEGMENT_MAP')) {
 	define('SEGMENT_MAP', [
 		'affordable' => '1',
+		'budget' => '1',
+		'cheap' => '1',
+		'economy' => '1',
 		'luxury' => '2',
+		'premium' => '2',
 		'ultra luxury' => '3',
 		'value' => '4',
 	]);
@@ -48,8 +52,11 @@ if (!defined('BUDGET_MULTIPLIERS')) {
 	define('BUDGET_MULTIPLIERS', [
 		'k' => 1000,
 		'lakh' => 100000,
+		'lakhs' => 100000,
 		'l' => 100000,
 		'cr' => 10000000,
+		'crore' => 10000000,
+		'crores' => 10000000,
 	]);
 }
 

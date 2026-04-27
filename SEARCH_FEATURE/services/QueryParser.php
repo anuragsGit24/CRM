@@ -41,6 +41,8 @@ final class QueryParser
 		$possessionRules = [
 			'/\b(?:ready\s+to\s+move|rtm)\b/i' => 'Ready To Move',
 			'/\b(?:under\s+construction|uc)\b/i' => 'Under Construction',
+			'/\b(?:pre\s*-?\s*launch|prelaunch)\b/i' => 'Upcoming',
+			'/\bnew\s+projects?\b/i' => 'Upcoming',
 			'/\bupcoming\b/i' => 'Upcoming',
 		];
 
@@ -227,7 +229,7 @@ final class QueryParser
 
 	private static function extractBudgets(string &$working, array &$parsed): void
 	{
-		$pattern = '/\b(?:(under|below|upto|up\s*to|max|above|minimum|min|starting)\s*)?(\d+(?:[.,]\d+)?)\s*(k|lakh|l|cr)?\b/i';
+		$pattern = '/\b(?:(under|below|upto|up\s*to|max|above|minimum|min|starting)\s*)?(\d+(?:[.,]\d+)?)\s*(k|lakh|l|cr|crore)?\b/i';
 		$maxContext = ['under', 'below', 'upto', 'up to', 'max'];
 		$minContext = ['above', 'minimum', 'min', 'starting'];
 		$budgetMultipliers = self::getMapConstant('BUDGET_MULTIPLIERS');
@@ -355,7 +357,7 @@ final class QueryParser
 	private static function removeGenericPropertyTerms(string $value): string
 	{
 		$clean = preg_replace(
-			'/\b(?:property|properties|house|houses|home|homes|residence|residential|condo|condos|villa|villas)\b/i',
+			'/\b(?:property|properties|house|houses|home|homes|residence|residential|condo|condos|villa|villas|flat|flats|flates|apartments|apartment|penthouse|penthouses|real\s+estate|listing|listings)\b/i',
 			' ',
 			$value
 		) ?? $value;
@@ -372,13 +374,29 @@ final class QueryParser
 		}
 
 		$clean = preg_replace(
-			'/^(?:in|at|on|for|from|to|near|around|within|inside|of|the)\s+/i',
+			'/^(?:(?:in|at|on|for|from|to|near|around|within|inside|of|the|with|and|by)\s+)+/i',
 			'',
 			$value
 		) ?? $value;
 
 		$clean = preg_replace(
-			'/\s+(?:in|at|on|for|from|to|near|around|within|inside|of|the)\s*$/i',
+			'/\s+(?:(?:in|at|on|for|from|to|near|around|within|inside|of|the|with|and|by)\s*)+$/i',
+			'',
+			$clean
+		) ?? $clean;
+
+		$clean = preg_replace('/\bmumba\b/i', 'mumbai', $clean) ?? $clean;
+		$clean = preg_replace('/\bmumabi\b/i', 'mumbai', $clean) ?? $clean;
+		$clean = preg_replace('/\bmumai\b/i', 'mumbai', $clean) ?? $clean;
+
+		$clean = preg_replace(
+			'/^(?:(?:best|cheapest|cheap|budget|affordable|luxury|new|upcoming|pre\s*-?\s*launch|family\s+friendly|bachelor\s+friendly|pet\s+friendly|high\s+roi|rental\s+yield|good\s+connectivity|growth\s+areas?|areas?\s+to\s+invest|real\s+estate|listings?)\s+)+/i',
+			'',
+			$clean
+		) ?? $clean;
+
+		$clean = preg_replace(
+			'/^(?:(?:in|at|on|for|from|to|near|around|within|inside|of|the|with|and|by)\s+)+/i',
 			'',
 			$clean
 		) ?? $clean;
@@ -388,6 +406,8 @@ final class QueryParser
 			'',
 			$clean
 		) ?? $clean;
+
+		$clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;
 
 		$clean = trim($clean, " \t\n\r\0\x0B,.");
 

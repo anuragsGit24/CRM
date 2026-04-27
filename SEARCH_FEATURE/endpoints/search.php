@@ -181,28 +181,34 @@ try {
 		}
 	}
 
-	// If a builder is known, remove its words from the raw location so we do not
-	// keep fragments like "group" or "lodha" inside the location string.
 	if ($builderId !== null && $parsed['raw_location'] !== null && !empty($parsed['builder_name'])) {
 		$rawLocationValue = trim((string) $parsed['raw_location']);
 		$builderNameValue = trim((string) $parsed['builder_name']);
+
 		if ($rawLocationValue !== '' && $builderNameValue !== '') {
-			$builderTokens = preg_split('/\s+/', $builderNameValue) ?: [];
+			$rawTokens = preg_split('/\s+/', strtolower($rawLocationValue)) ?: [];
+			$builderTokens = preg_split('/\s+/', strtolower($builderNameValue)) ?: [];
+			$builderLookup = [];
+
 			foreach ($builderTokens as $token) {
-				$cleanToken = trim($token);
-				if ($cleanToken === '') {
+				$clean = trim((string) (preg_replace('/[^a-z0-9]/', '', $token) ?? ''));
+				if (strlen($clean) >= 4) {
+					$builderLookup[$clean] = true;
+				}
+			}
+
+			$keptTokens = [];
+			foreach ($rawTokens as $token) {
+				$clean = trim((string) (preg_replace('/[^a-z0-9]/', '', $token) ?? ''));
+				if ($clean !== '' && isset($builderLookup[$clean])) {
 					continue;
 				}
 
-				$rawLocationValue = preg_replace('/\b' . preg_quote($cleanToken, '/') . '\b/i', ' ', $rawLocationValue, 1) ?? $rawLocationValue;
+				$keptTokens[] = $token;
 			}
 
-			$rawLocationValue = trim((string) (preg_replace('/\s+/', ' ', $rawLocationValue) ?? $rawLocationValue));
-			$rawLocationValue = trim($rawLocationValue, " \\t\\n\\r\\0\\x0B,.");
-			$rawLocationValue = preg_replace('/\b(?:with|and|near|in|at|on|for|to|of|the)\b/i', ' ', $rawLocationValue) ?? $rawLocationValue;
-			$rawLocationValue = trim((string) (preg_replace('/\s+/', ' ', $rawLocationValue) ?? $rawLocationValue));
-
-			$parsed['raw_location'] = $rawLocationValue !== '' ? $rawLocationValue : null;
+			$cleanedRawLocation = trim((string) (preg_replace('/\s+/', ' ', implode(' ', $keptTokens)) ?? ''));
+			$parsed['raw_location'] = $cleanedRawLocation !== '' ? $cleanedRawLocation : null;
 		}
 	}
 
@@ -215,6 +221,8 @@ try {
 	if ($directAmenities !== [] && (!is_array($parsed['amenities']) || $parsed['amenities'] === [])) {
 		$parsed['amenities'] = $directAmenities;
 	}
+
+	$requestedForInterpretation = $parsed;
 
 	if (($parsed['geo_intent'] ?? false) === true) {
 		// Keep non-geo filters from the same query, e.g. "2 bhk near me".
@@ -231,88 +239,94 @@ try {
 		}
 
 		if ($geoLat === null || $geoLng === null) {
-			Response::error('Location coordinates required for near me search', 400);
-		}
-
-		$additionalFilters = [];
-		foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $filterKey) {
-			if ($parsed[$filterKey] !== null) {
-				$additionalFilters[$filterKey] = $parsed[$filterKey];
+			// Graceful fallback: if geo coordinates are missing, continue with normal text search.
+			$parsed['geo_intent'] = false;
+		} else {
+			$additionalFilters = [];
+			foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $filterKey) {
+				if ($parsed[$filterKey] !== null) {
+					$additionalFilters[$filterKey] = $parsed[$filterKey];
+				}
 			}
-		}
 
-		$geoService = new GeoSearchService($pdo);
-		$geoResult = $geoService->searchNearMe($geoLat, $geoLng, $additionalFilters, $page, $limit);
+			$geoService = new GeoSearchService($pdo);
+			$geoResult = $geoService->searchNearMe($geoLat, $geoLng, $additionalFilters, $page, $limit);
 
-		$queryInterpreted = [
-			'geo' => true,
-			'geo_lat' => $geoLat,
-			'geo_lng' => $geoLng,
-		];
-
-		foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $key) {
-			if ($parsed[$key] !== null) {
-				$queryInterpreted[$key] = $parsed[$key];
-			}
-		}
-
-		$results = isset($geoResult['results']) && is_array($geoResult['results']) ? $geoResult['results'] : [];
-		$paginationPayload = isset($geoResult['pagination']) && is_array($geoResult['pagination'])
-			? $geoResult['pagination']
-			: [
-				'current_page' => $page,
-				'per_page' => $limit,
-				'total_count' => 0,
-				'total_pages' => 0,
+			$queryInterpreted = [
+				'geo' => true,
+				'geo_lat' => $geoLat,
+				'geo_lng' => $geoLng,
 			];
 
-		$parsedForLog = $parsed;
-		$parsedForLog['search_type'] = 'geo';
-		$parsedForLog['nearest_station'] = $geoResult['nearest_station'] ?? null;
-		$parsedForLog['stations_searched'] = $geoResult['stations_searched'] ?? [];
-		$parsedForLog['radius_used_km'] = $geoResult['radius_used_km'] ?? null;
-		$parsedForLog['fallback_used'] = $geoResult['fallback_used'] ?? false;
+			foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $key) {
+				if ($parsed[$key] !== null) {
+					$queryInterpreted[$key] = $parsed[$key];
+				}
+			}
 
-		try {
-			$logger = new SearchLogger($pdo);
-			$logger->log(
-				$query,
-				$parsedForLog,
-				(int) ($geoResult['total_count'] ?? 0),
-				$platform,
-				$userId,
-				$geoLat,
-				$geoLng
+			$results = isset($geoResult['results']) && is_array($geoResult['results']) ? $geoResult['results'] : [];
+			$paginationPayload = isset($geoResult['pagination']) && is_array($geoResult['pagination'])
+				? $geoResult['pagination']
+				: [
+					'current_page' => $page,
+					'per_page' => $limit,
+					'total_count' => 0,
+					'total_pages' => 0,
+				];
+
+			$parsedForLog = $parsed;
+			$parsedForLog['search_type'] = 'geo';
+			$parsedForLog['nearest_station'] = $geoResult['nearest_station'] ?? null;
+			$parsedForLog['stations_searched'] = $geoResult['stations_searched'] ?? [];
+			$parsedForLog['radius_used_km'] = $geoResult['radius_used_km'] ?? null;
+			$parsedForLog['fallback_used'] = $geoResult['fallback_used'] ?? false;
+
+			try {
+				$logger = new SearchLogger($pdo);
+				$logger->log(
+					$query,
+					$parsedForLog,
+					(int) ($geoResult['total_count'] ?? 0),
+					$platform,
+					$userId,
+					$geoLat,
+					$geoLng
+				);
+			} catch (Throwable $logException) {
+				error_log('Search logger wrapper failed: ' . $logException->getMessage());
+			}
+
+			Response::success(
+				$results,
+				$queryInterpreted,
+				false,
+				$paginationPayload,
+				200,
+				[
+					'search_type' => 'geo',
+					'nearest_station' => (string) ($geoResult['nearest_station'] ?? ''),
+					'station_distance_km' => (float) ($geoResult['station_distance_km'] ?? 0.0),
+					'stations_searched' => isset($geoResult['stations_searched']) && is_array($geoResult['stations_searched']) ? $geoResult['stations_searched'] : [],
+					'radius_used_km' => (float) ($geoResult['radius_used_km'] ?? 7.0),
+					'fallback_used' => (bool) ($geoResult['fallback_used'] ?? false),
+				]
 			);
-		} catch (Throwable $logException) {
-			error_log('Search logger wrapper failed: ' . $logException->getMessage());
 		}
-
-		Response::success(
-			$results,
-			$queryInterpreted,
-			false,
-			$paginationPayload,
-			200,
-			[
-				'search_type' => 'geo',
-				'nearest_station' => (string) ($geoResult['nearest_station'] ?? ''),
-				'station_distance_km' => (float) ($geoResult['station_distance_km'] ?? 0.0),
-				'stations_searched' => isset($geoResult['stations_searched']) && is_array($geoResult['stations_searched']) ? $geoResult['stations_searched'] : [],
-				'radius_used_km' => (float) ($geoResult['radius_used_km'] ?? 7.0),
-				'fallback_used' => (bool) ($geoResult['fallback_used'] ?? false),
-			]
-		);
 	}
 
 	$locationIds = [];
 	$originalRawLocation = null;
 	$isBroadCityLocation = false;
+	$broadCityIntent = null;
 
 	if ($parsed['raw_location'] !== null) {
 		$resolver = new LocationResolver($pdo);
 		$originalRawLocation = (string) $parsed['raw_location'];
 		$isBroadCityLocation = $resolver->isBroadCityQuery($originalRawLocation);
+		$broadCityIntent = $resolver->extractBroadCityIntent($originalRawLocation);
+		if ($broadCityIntent !== null) {
+			$isBroadCityLocation = true;
+		}
 		$locationIds = $resolver->resolveIds($originalRawLocation);
 
 		if ($locationIds === [] && $isBroadCityLocation) {
@@ -359,6 +373,15 @@ try {
 		$isRelaxed = true;
 	}
 
+	if ($totalCount === 0 && (($built['used_fulltext'] ?? false) === true) && $parsed['raw_location'] !== null) {
+		$parsed['raw_location'] = null;
+		$built = $builder->build($parsed, $locationIds, $page, $limit, $geoSearchLat, $geoSearchLng, $builderId);
+		$totalCount = $runCount($pdo, $built);
+		if ($totalCount > 0) {
+			$isRelaxed = true;
+		}
+	}
+
 	$stmt = $pdo->prepare($built['sql']);
 	$stmt->execute($built['params']);
 	$results = $stmt->fetchAll();
@@ -372,12 +395,12 @@ try {
 
 	$queryInterpreted = [];
 	foreach (['bhk', 'transaction_type', 'max_budget', 'min_budget', 'project_segment', 'possession'] as $key) {
-		if ($parsed[$key] !== null) {
-			$queryInterpreted[$key] = $parsed[$key];
+		if ($requestedForInterpretation[$key] !== null) {
+			$queryInterpreted[$key] = $requestedForInterpretation[$key];
 		}
 	}
 
-	$builderNameInterpreted = trim((string) ($parsed['builder_name'] ?? ''));
+	$builderNameInterpreted = trim((string) ($requestedForInterpretation['builder_name'] ?? ''));
 	if ($builderNameInterpreted !== '') {
 		$queryInterpreted['builder'] = $builderNameInterpreted;
 	}
@@ -387,13 +410,13 @@ try {
 		2 => 'Office Space',
 		3 => 'Shop',
 	];
-	$propertyTypeValue = isset($parsed['property_type']) ? (int) $parsed['property_type'] : 0;
+	$propertyTypeValue = isset($requestedForInterpretation['property_type']) ? (int) $requestedForInterpretation['property_type'] : 0;
 	if (isset($propertyTypeMap[$propertyTypeValue])) {
 		$queryInterpreted['property_type'] = $propertyTypeMap[$propertyTypeValue];
 	}
 
-	if (is_array($parsed['amenities']) && $parsed['amenities'] !== []) {
-		$amenities = array_values(array_unique(array_filter(array_map(static fn($value) => trim((string) $value), $parsed['amenities']), static fn(string $value): bool => $value !== '')));
+	if (is_array($requestedForInterpretation['amenities']) && $requestedForInterpretation['amenities'] !== []) {
+		$amenities = array_values(array_unique(array_filter(array_map(static fn($value) => trim((string) $value), $requestedForInterpretation['amenities']), static fn(string $value): bool => $value !== '')));
 		if ($amenities !== []) {
 			$queryInterpreted['amenities'] = $amenities;
 		}
@@ -414,15 +437,33 @@ try {
 			$locationNames = array_values(array_filter(array_map(static fn($name) => trim((string) $name), $locationStmt->fetchAll(PDO::FETCH_COLUMN)), static fn(string $name): bool => $name !== ''));
 
 			if ($locationNames !== []) {
-				$queryInterpreted['location'] = count($locationNames) === 1
-					? $locationNames[0]
-					: implode(', ', $locationNames);
+				if (count($locationNames) > 1 && $originalRawLocation !== null) {
+					$normalizedRawLocation = strtolower(trim((string) $originalRawLocation));
+					$allNamesShareRawPrefix = $normalizedRawLocation !== '';
+
+					foreach ($locationNames as $resolvedName) {
+						if (stripos($resolvedName, $normalizedRawLocation) !== 0) {
+							$allNamesShareRawPrefix = false;
+							break;
+						}
+					}
+
+					if ($allNamesShareRawPrefix) {
+						$queryInterpreted['location'] = $originalRawLocation;
+					} else {
+						$queryInterpreted['location'] = implode(', ', $locationNames);
+					}
+				} else {
+					$queryInterpreted['location'] = $locationNames[0];
+				}
 			}
 		}
 	} elseif ($isBroadCityLocation && $originalRawLocation !== null) {
-		$queryInterpreted['location'] = $originalRawLocation;
+		$queryInterpreted['location'] = $broadCityIntent ?? $originalRawLocation;
 	} elseif ($parsed['raw_location'] !== null) {
 		$queryInterpreted['location'] = (string) $parsed['raw_location'];
+	} elseif (($requestedForInterpretation['raw_location'] ?? null) !== null) {
+		$queryInterpreted['location'] = (string) $requestedForInterpretation['raw_location'];
 	}
 
 	Response::success(

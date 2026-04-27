@@ -5,6 +5,69 @@ final class LocationResolver
 {
 private PDO $pdo;
 private const BROAD_CITY_TERMS = ['mumbai', 'bombay', 'mumbai city', 'greater mumbai'];
+private const BROAD_CITY_NOISE_TERMS = [
+'in',
+'at',
+'on',
+'for',
+'from',
+'to',
+'near',
+'around',
+'within',
+'inside',
+'of',
+'the',
+'with',
+'and',
+'by',
+'best',
+'cheapest',
+'cheap',
+'budget',
+'affordable',
+'luxury',
+'new',
+'pre',
+'launch',
+'upcoming',
+'ready',
+'move',
+'under',
+'construction',
+'area',
+'areas',
+'invest',
+'investment',
+'growth',
+'high',
+'roi',
+'rental',
+'yield',
+'real',
+'estate',
+'listing',
+'listings',
+'good',
+'connectivity',
+'friendly',
+'family',
+'bachelor',
+'pet',
+'property',
+'properties',
+'flat',
+'flats',
+'flates',
+'apartment',
+'apartments',
+'house',
+'houses',
+'home',
+'homes',
+'project',
+'projects',
+];
 private const MAX_LOCATION_MATCHES = 12;
 private const DIRECTION_MAP = [
 'e' => 'east',
@@ -87,7 +150,38 @@ if ($normalized === '') {
 return false;
 }
 
+if (preg_match('/^(?:south|north|east|west)\s+mumbai$/i', $normalized) === 1) {
+return true;
+}
+
 return in_array($normalized, self::BROAD_CITY_TERMS, true);
+}
+
+public function extractBroadCityIntent(string $rawLocation): ?string
+{
+$normalized = self::normalizeRawLocation($rawLocation);
+if ($normalized === '') {
+return null;
+}
+
+$normalized = preg_replace('/\bmumba\b/i', 'mumbai', $normalized) ?? $normalized;
+
+if (preg_match('/\b(?:south|north|east|west)\s+mumbai\b/i', $normalized, $directionalMatch) === 1) {
+$directionalPhrase = strtolower(trim((string) $directionalMatch[0]));
+$remaining = preg_replace('/\b(?:south|north|east|west)\s+mumbai\b/i', ' ', $normalized, 1) ?? $normalized;
+if (self::isNoiseOnlyText($remaining)) {
+return $directionalPhrase;
+}
+}
+
+if (preg_match('/\b(?:mumbai\s+city|greater\s+mumbai|mumbai|bombay)\b/i', $normalized) === 1) {
+$remaining = preg_replace('/\b(?:mumbai\s+city|greater\s+mumbai|mumbai|bombay)\b/i', ' ', $normalized, 1) ?? $normalized;
+if (self::isNoiseOnlyText($remaining)) {
+return 'mumbai';
+}
+}
+
+return null;
 }
 
 public function getSuggestions(string $query): array
@@ -382,5 +476,26 @@ return str_replace(
 ['\\\\', '\\%', '\\_'],
 $value
 );
+}
+
+private static function isNoiseOnlyText(string $value): bool
+{
+$tokens = preg_split('/\s+/', strtolower(trim($value))) ?: [];
+if ($tokens === []) {
+return true;
+}
+
+foreach ($tokens as $token) {
+$clean = trim((string) (preg_replace('/[^a-z0-9]/', '', $token) ?? ''));
+if ($clean === '') {
+continue;
+}
+
+if (!in_array($clean, self::BROAD_CITY_NOISE_TERMS, true)) {
+return false;
+}
+}
+
+return true;
 }
 }
